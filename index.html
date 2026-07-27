@@ -3,92 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Philip Michael Roberts</title>
+    <title>Project Organizer</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-    <div class="hero">
-        <div class="hero-content">
-            <h1>Philip Michael Roberts</h1>
-            <p class="subtitle">Program Automation Specialist | Power Platform Expert</p>
+    <div id="app">
+        <div id="loading-screen" class="loading-screen">
+            <div class="loading-spinner"></div>
+            <p>Loading...</p>
         </div>
     </div>
 
-    <nav class="navbar">
-        <a href="#summary">Summary</a>
-        <a href="#competencies">Skills</a>
-        <a href="#projects">Projects</a>
-        <a href="#education">Education</a>
-        <a href="#tech">Tech Stack</a>
-        <a href="#contact">Contact</a>
-    </nav>
-
-    <main>
-        <section id="summary">
-            <h2>Summary</h2>
-            <p>Streamlining business operations through automation, data analytics, and secure messaging solutions. Trusted consultant and trainer with a proven track record of cutting manual work, building scalable systems, and delivering technical training to 9,000+ federal employees.</p>
-        </section>
-
-        <section id="competencies">
-            <h2>Core Competencies</h2>
-            <div class="grid">
-                <div>Power Apps / Automate / BI / SharePoint</div>
-                <div>Excel VBA / Power Query / SQL / DAX / JSON</div>
-                <div>Secure Messaging Admin (eGain)</div>
-                <div>Workflow Optimization</div>
-                <div>Technical Writing & Training</div>
-            </div>
-        </section>
-
-        <section id="projects">
-            <h2>Selected Projects & Achievements</h2>
-            <div class="project">
-                <h3>eGain Secure Messaging | IRS</h3>
-                <ul>
-                    <li>Lead admin and advisor across IRS departments</li>
-                    <li>Designed performance dashboards and trained admins</li>
-                </ul>
-            </div>
-            <div class="project">
-                <h3>Automation Using Excel & SharePoint</h3>
-                <ul>
-                    <li>Built Ambassador matching system (2-day process → 1 hour)</li>
-                    <li>Modernized submission processes with Power Platform & JSON</li>
-                </ul>
-            </div>
-            <div class="project">
-                <h3>Training & Development</h3>
-                <ul>
-                    <li>Created and hosted 40+ Excel workshops for 9,000+ staff</li>
-                    <li>Built Power Platform solutions for submission and risk systems</li>
-                </ul>
-            </div>
-        </section>
-
-        <section id="education">
-            <h2>Education & Certifications</h2>
-            <ul>
-                <li>M.A., Rivier College – Nashua, NH</li>
-                <li>B.A., University of Kansas – Lawrence, KS</li>
-                <li>IRS Certified Instructor (2017)</li>
-            </ul>
-        </section>
-
-        <section id="tech">
-            <h2>Technical Stack</h2>
-            <p>Power Platform, SharePoint, Excel, Power BI, SQL, JSON, VBA, HTML/CSS, DAX, eGain Secure Messaging</p>
-        </section>
-
-        <section id="contact">
-            <h2>Contact</h2>
-            <p><strong>Email:</strong> <a href="mailto:philip.michael.roberts@gmail.com">philip.michael.roberts@gmail.com</a></p>
-            <p><strong>Phone:</strong> 603-809-6927</p>
-            <p><strong>Website:</strong> <a href="https://philipmichaelroberts.com">philipmichaelroberts.com</a></p>
-        </section>
-    </main>
-
-    <footer>
-        <p>&copy; 2025 Philip Michael Roberts. All rights reserved.</p>
-    </footer>
+    <script src="app.js"></script>
 </body>
 </html>
