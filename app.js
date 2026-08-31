@@ -15,6 +15,10 @@ const app = () => document.getElementById('app');
 // ============================================================
 // Field types: text, textarea, select, fk, number
 // fk fields: { type:'fk', fkTable, fkLabel } — loads options from related table
+//
+// display: array of either plain strings (field keys) or objects { key, label }
+//   - plain string: shows the raw value
+//   - { key, label }: shows "Label: value"
 
 const NOVEL_TABLES = {
     novel_characters: {
@@ -211,9 +215,11 @@ const SS_TABLES = {
     },
     ss_stories: {
         label: 'Stories', icon: '📄',
-        display: ['name','status','genre'],
+        display: ['name', {key:'char_type', label:'Character'}, {key:'loc_type', label:'Location'}],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
+            { key:'char_type', label:'Character Type', type:'text' },
+            { key:'loc_type', label:'Location Type', type:'text' },
             { key:'category_id', label:'Category', type:'fk', fkTable:'ss_categories', fkLabel:'name' },
             { key:'status', label:'Status', type:'select', options:['Idea','Outline','Draft','Revised','Final','Published'] },
             { key:'genre', label:'Genre', type:'text' },
@@ -330,7 +336,6 @@ async function fetchJunctions(junctionTable, selfKey, selfId, otherTable, otherL
     const { data, error } = await sb.from(junctionTable).select('*').eq(selfKey, selfId);
     if (error) throw error;
     const otherIds = (data || []).map(r => Object.values(r).find((v, i) => Object.keys(r)[i] !== 'id' && Object.keys(r)[i] !== selfKey));
-    // get names for each linked id
     if (otherIds.length === 0) return [];
     const { data: others } = await sb.from(otherTable).select('id, ' + otherLabel).in('id', otherIds);
     return others || [];
@@ -539,7 +544,6 @@ async function renderNovelSeries() {
         }
         content += `<div id="series-form-slot"></div></div>`;
 
-        // Keep topbar + breadcrumbs, replace page content
         const topHTML = topbar() + breadcrumb([{label:'Home',href:'#'},{label:'Writing',href:'#writing'},{label:'Novels'}]);
         app().innerHTML = topHTML + content;
 
@@ -577,7 +581,6 @@ async function renderNovelWorkspace(seriesId) {
     const tableKeys = Object.keys(NOVEL_TABLES);
     const firstTable = tableKeys[0];
 
-    // fetch series name
     let seriesName = 'Series';
     try {
         const s = await fetchRow('novel_series', seriesId);
@@ -598,7 +601,6 @@ async function renderNovelWorkspace(seriesId) {
             <div class="loading-screen" style="height:auto;min-height:200px;"><div class="loading-spinner"></div></div>
         </div>`;
 
-    // Tab click handler
     document.querySelectorAll('#novel-tabs .tab').forEach(tab => {
         tab.onclick = () => {
             document.querySelectorAll('#novel-tabs .tab').forEach(t => t.classList.remove('active'));
@@ -661,14 +663,24 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
         } else {
             html += `<div class="entry-list">`;
             for (const row of rows) {
-                const displayVals = config.display
-                    .map(k => row[k])
-                    .filter(Boolean)
-                    .map(v => esc(v));
-                const meta = displayVals.slice(1).join(' · ');
+                // Build display: first item is the name, rest go to meta line
+                const firstKey = typeof config.display[0] === 'string' ? config.display[0] : config.display[0].key;
+                const nameVal = esc(row[firstKey]) || '(untitled)';
+
+                const metaParts = config.display.slice(1)
+                    .map(d => {
+                        if (typeof d === 'string') {
+                            return row[d] ? esc(row[d]) : null;
+                        }
+                        // Object with { key, label } — show "Label: value"
+                        return row[d.key] ? `${esc(d.label)}: ${esc(row[d.key])}` : null;
+                    })
+                    .filter(Boolean);
+                const meta = metaParts.join(' · ');
+
                 html += `<div class="entry-card" data-id="${row.id}">
                     <div>
-                        <div class="entry-name">${displayVals[0] || '(untitled)'}</div>
+                        <div class="entry-name">${nameVal}</div>
                         ${meta ? `<div class="entry-meta">${meta}</div>` : ''}
                     </div>
                     <div class="entry-actions">
@@ -822,18 +834,15 @@ async function loadJunctions(seriesId, parentId, junctions) {
     let html = '';
 
     for (const j of junctions) {
-        // Fetch current links
         const { data: links } = await sb.from(j.table).select('*').eq(j.fkSelf, parentId);
         const linkedIds = (links || []).map(l => l[j.fkOther]);
 
-        // Fetch names for linked items
         let linkedItems = [];
         if (linkedIds.length > 0) {
             const { data } = await sb.from(j.otherTable).select('id, ' + j.otherLabel).in('id', linkedIds);
             linkedItems = data || [];
         }
 
-        // Fetch all available items for the dropdown
         const allOpts = await loadFkOptions(j.otherTable, j.otherLabel, seriesId);
         const available = allOpts.filter(o => !linkedIds.includes(o.value));
 
@@ -860,7 +869,6 @@ async function loadJunctions(seriesId, parentId, junctions) {
 
     slot.innerHTML = html;
 
-    // Remove tag handlers
     slot.querySelectorAll('.remove-tag').forEach(tag => {
         tag.onclick = async () => {
             try {
@@ -872,7 +880,6 @@ async function loadJunctions(seriesId, parentId, junctions) {
         };
     });
 
-    // Add handlers
     slot.querySelectorAll('.junction-add-btn').forEach(btn => {
         btn.onclick = async () => {
             const sel = slot.querySelector(`.junction-select[data-jt="${btn.dataset.jt}"]`);
@@ -891,7 +898,6 @@ async function loadJunctions(seriesId, parentId, junctions) {
 // UNUSED ROUTE HANDLER (placeholder for direct table deep-links)
 // ============================================================
 function renderTableView(seriesId, tableName, tableConfigs, isNovel) {
-    // For direct deep links, render the workspace and auto-select the tab
     if (isNovel && seriesId) {
         renderNovelWorkspace(seriesId);
     } else {
