@@ -235,6 +235,40 @@ const SS_TABLES = {
 };
 
 // ============================================================
+// HOME TABLE CONFIGURATIONS
+// ============================================================
+const HOME_SIMPLE_TABLES = {
+    home_areas: {
+        label: 'Areas', icon: '📍',
+        display: ['name'],
+        fields: [
+            { key:'name', label:'Name', type:'text', required:true },
+        ]
+    }
+};
+
+const HOME_PROJECT_FIELDS = [
+    { key:'name', label:'Name', type:'text', required:true },
+    { key:'area_id', label:'Area', type:'fk', fkTable:'home_areas', fkLabel:'name' },
+    { key:'type', label:'Type', type:'select', options:['Contractor','Handyman','LT DIY','ST DIY','DIY'] },
+    { key:'estimated_cost', label:'Estimated Cost', type:'text' },
+    { key:'cost_notes', label:'Cost Notes', type:'textarea' },
+    { key:'status', label:'Status', type:'select', options:['Not Started','Planning','Researching','Scheduled','In Progress','On Hold','Complete'] },
+    { key:'target_date', label:'Target Date', type:'text' },
+    { key:'assigned_to', label:'Assigned To', type:'select', options:['Philip','Phoebe','Both'] },
+    { key:'notes', label:'Notes', type:'textarea' },
+];
+
+const HOME_MEASUREMENT_FIELDS = [
+    { key:'area_id', label:'Area', type:'fk', fkTable:'home_areas', fkLabel:'name' },
+    { key:'specific_location', label:'Specific Location', type:'text', required:true },
+    { key:'height', label:'Height', type:'text' },
+    { key:'width', label:'Width', type:'text' },
+    { key:'depth', label:'Depth', type:'text' },
+    { key:'notes', label:'Notes', type:'textarea' },
+];
+
+// ============================================================
 // STATE
 // ============================================================
 let currentUser = null;
@@ -265,6 +299,7 @@ async function handleRoute() {
         case 'short-stories':
             if (path.length >= 2) renderTableView(null, path[1], SS_TABLES, false);
             else renderSSWorkspace(); break;
+        case 'home': renderHomeWorkspace(); break;
         default: renderHome();
     }
 }
@@ -477,6 +512,11 @@ function renderHome() {
                 <div class="icon">✍️</div>
                 <h3>Writing</h3>
                 <p>Novels, short stories, world-building</p>
+            </div>
+            <div class="choice-card" onclick="navigate('#home')">
+                <div class="icon">🏠</div>
+                <h3>Home</h3>
+                <p>Projects, measurements, improvements</p>
             </div>
             <div class="choice-card disabled">
                 <div class="icon">🎮</div>
@@ -903,6 +943,548 @@ function renderTableView(seriesId, tableName, tableConfigs, isNovel) {
     } else {
         renderSSWorkspace();
     }
+}
+
+// ============================================================
+// HOME SECTION — HELPERS
+// ============================================================
+function getStatusClass(status) {
+    switch (status) {
+        case 'Complete': return 'status-complete';
+        case 'In Progress': return 'status-active';
+        case 'Scheduled': return 'status-scheduled';
+        case 'Planning': case 'Researching': return 'status-planning';
+        case 'On Hold': return 'status-hold';
+        default: return 'status-default';
+    }
+}
+
+// ============================================================
+// RENDER: HOME WORKSPACE
+// ============================================================
+function renderHomeWorkspace() {
+    const tabs = [
+        { key:'projects', icon:'🏗️', label:'Projects' },
+        { key:'measurements', icon:'📏', label:'Measurements' },
+        { key:'areas', icon:'📍', label:'Areas' },
+    ];
+
+    app().innerHTML = topbar()
+        + breadcrumb([{label:'Home',href:'#'},{label:'Home'}])
+        + `<div class="tab-bar" id="home-tabs">${tabs.map((t, i) =>
+            `<button class="tab${i===0?' active':''}" data-tab="${t.key}">${t.icon} ${t.label}</button>`
+        ).join('')}</div>
+        <div id="table-content" class="page">
+            <div class="loading-screen" style="height:auto;min-height:200px;"><div class="loading-spinner"></div></div>
+        </div>`;
+
+    document.querySelectorAll('#home-tabs .tab').forEach(tab => {
+        tab.onclick = () => {
+            document.querySelectorAll('#home-tabs .tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const key = tab.dataset.tab;
+            if (key === 'projects') loadHomeProjects();
+            else if (key === 'measurements') loadHomeMeasurements();
+            else loadTableList(null, 'home_areas', HOME_SIMPLE_TABLES, false);
+        };
+    });
+
+    loadHomeProjects();
+}
+
+// ============================================================
+// HOME: PROJECT LIST
+// ============================================================
+async function loadHomeProjects() {
+    const container = $('#table-content');
+    container.innerHTML = `<div class="loading-screen" style="height:auto;min-height:150px;"><div class="loading-spinner"></div></div>`;
+
+    try {
+        const { data: projects, error: pErr } = await sb.from('home_projects').select('*').order('name');
+        if (pErr) throw pErr;
+
+        const { data: areas } = await sb.from('home_areas').select('id, name').order('name');
+        const areaMap = {};
+        (areas || []).forEach(a => { areaMap[a.id] = a.name; });
+
+        let html = `<div class="page-header">
+            <h2>🏗️ Projects</h2>
+            <button class="btn btn-primary btn-sm" id="add-project-btn">+ Add Project</button>
+        </div>
+        <div class="home-filters">
+            <select id="filter-status">
+                <option value="">All Statuses</option>
+                ${['Not Started','Planning','Researching','Scheduled','In Progress','On Hold','Complete'].map(s => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+            <select id="filter-area">
+                <option value="">All Areas</option>
+                ${(areas||[]).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+            </select>
+            <select id="filter-type">
+                <option value="">All Types</option>
+                ${['Contractor','Handyman','LT DIY','ST DIY','DIY'].map(t => `<option value="${t}">${t}</option>`).join('')}
+            </select>
+        </div>
+        <div id="form-slot"></div>`;
+
+        if (!projects || projects.length === 0) {
+            html += `<div class="empty-state"><div class="icon">🏗️</div><p>No projects yet.</p></div>`;
+        } else {
+            html += `<div class="entry-list" id="project-list">`;
+            for (const p of projects) {
+                const areaName = p.area_id ? (areaMap[p.area_id] || 'Unknown') : 'Unassigned';
+                const statusClass = getStatusClass(p.status);
+                html += `<div class="entry-card" data-id="${p.id}" data-status="${esc(p.status||'')}" data-area="${p.area_id||''}" data-type="${esc(p.type||'')}">
+                    <div>
+                        <div class="entry-name">${esc(p.name)}</div>
+                        <div class="entry-meta">
+                            <span class="status-badge ${statusClass}">${esc(p.status)}</span>
+                            ${p.type ? ' · ' + esc(p.type) : ''}
+                            · ${esc(areaName)}
+                            ${p.estimated_cost ? ' · ' + esc(p.estimated_cost) : ''}
+                            ${p.assigned_to ? ' · ' + esc(p.assigned_to) : ''}
+                        </div>
+                    </div>
+                    <div class="entry-actions">
+                        <button class="btn btn-secondary btn-sm edit-btn">Edit</button>
+                        <button class="btn btn-danger btn-sm del-btn">Delete</button>
+                    </div>
+                </div>`;
+            }
+            html += `</div>`;
+        }
+
+        container.innerHTML = html;
+
+        // Filters
+        const applyFilters = () => {
+            const sv = $('#filter-status')?.value || '';
+            const av = $('#filter-area')?.value || '';
+            const tv = $('#filter-type')?.value || '';
+            container.querySelectorAll('#project-list .entry-card').forEach(card => {
+                const ok = (!sv || card.dataset.status === sv)
+                        && (!av || card.dataset.area === av)
+                        && (!tv || card.dataset.type === tv);
+                card.style.display = ok ? '' : 'none';
+            });
+        };
+        ['#filter-status','#filter-area','#filter-type'].forEach(s => { if ($(s)) $(s).onchange = applyFilters; });
+
+        $('#add-project-btn').onclick = () => showHomeProjectForm(null);
+
+        container.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.onclick = (e) => { e.stopPropagation(); showHomeProjectForm(btn.closest('.entry-card').dataset.id); };
+        });
+        container.querySelectorAll('.del-btn').forEach(btn => {
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                const yes = await confirm('Delete Project', 'This will permanently delete this project and all its steps and notes. Are you sure?');
+                if (!yes) return;
+                try {
+                    await deleteRow('home_projects', btn.closest('.entry-card').dataset.id);
+                    toast('Deleted'); loadHomeProjects();
+                } catch (err) { toast(err.message, 'error'); }
+            };
+        });
+
+    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+}
+
+// ============================================================
+// HOME: PROJECT FORM (Add / Edit) + STEPS + NOTES
+// ============================================================
+async function showHomeProjectForm(editId) {
+    const slot = $('#form-slot');
+    slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
+
+    let existing = null;
+    if (editId) {
+        try { existing = await fetchRow('home_projects', editId); } catch (e) {
+            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        }
+    }
+
+    const areaOpts = await loadFkOptions('home_areas', 'name', null);
+
+    const title = editId ? 'Edit Project' : 'New Project';
+    let html = `<div class="form-panel"><h3>${title}</h3>`;
+
+    for (const f of HOME_PROJECT_FIELDS) {
+        const val = existing ? (existing[f.key] ?? '') : '';
+        html += `<div class="form-group"><label>${esc(f.label)}${f.required ? ' *' : ''}</label>`;
+        if (f.type === 'textarea') {
+            html += `<textarea id="field-${f.key}">${esc(val)}</textarea>`;
+        } else if (f.type === 'select') {
+            html += `<select id="field-${f.key}"><option value="">— Select —</option>
+                ${f.options.map(o => `<option value="${esc(o)}"${val===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`;
+        } else if (f.type === 'fk') {
+            html += `<select id="field-${f.key}"><option value="">— None —</option>
+                ${areaOpts.map(o => `<option value="${o.value}"${val===o.value?' selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
+        } else {
+            html += `<input type="text" id="field-${f.key}" value="${esc(val)}">`;
+        }
+        html += `</div>`;
+    }
+
+    html += `<div class="form-actions">
+        <button class="btn btn-secondary btn-sm" id="form-cancel">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="form-save">${editId ? 'Update' : 'Create'}</button>
+    </div></div>`;
+
+    if (editId) html += `<div id="steps-slot"></div><div id="notes-slot"></div>`;
+
+    slot.innerHTML = html;
+    slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-save').onclick = async () => {
+        const row = {};
+        for (const f of HOME_PROJECT_FIELDS) {
+            let v = $(`#field-${f.key}`)?.value ?? '';
+            if (f.type === 'fk' || f.type === 'select') v = v || null;
+            else v = v.trim() || null;
+            if (f.required && !v) { toast(`${f.label} is required`, 'error'); return; }
+            row[f.key] = v;
+        }
+        try {
+            if (editId) { await updateRow('home_projects', editId, row); toast('Updated'); }
+            else { await insertRow('home_projects', row); toast('Created'); }
+            clearFkCache(); slot.innerHTML = ''; loadHomeProjects();
+        } catch (e) { toast(e.message, 'error'); }
+    };
+
+    if (editId) { loadProjectSteps(editId); loadProjectNotes(editId); }
+}
+
+// ============================================================
+// HOME: PROJECT STEPS
+// ============================================================
+async function loadProjectSteps(projectId) {
+    const slot = $('#steps-slot');
+    if (!slot) return;
+
+    try {
+        const { data: steps, error } = await sb.from('home_project_steps')
+            .select('*').eq('project_id', projectId).order('sort_order');
+        if (error) throw error;
+
+        let html = `<div class="sub-section"><h4>Steps</h4><div class="steps-list">`;
+
+        if (steps && steps.length > 0) {
+            for (const s of steps) {
+                const statusClass = s.status === 'Complete' ? 'step-complete' : s.status === 'In Progress' ? 'step-active' : s.status === 'Skipped' ? 'step-skipped' : 'step-pending';
+                html += `<div class="step-card ${statusClass}" data-step-id="${s.id}">
+                    <div class="step-info">
+                        <span class="step-order">${s.sort_order != null ? s.sort_order : ''}</span>
+                        <span class="step-desc">${esc(s.description)}</span>
+                    </div>
+                    <div class="step-controls">
+                        <select class="step-status-select" data-step-id="${s.id}">
+                            ${['Pending','In Progress','Complete','Skipped'].map(st =>
+                                `<option value="${st}"${s.status===st?' selected':''}>${st}</option>`
+                            ).join('')}
+                        </select>
+                        <input type="date" class="step-date-input" data-step-id="${s.id}" value="${s.date || ''}">
+                        <button class="btn btn-danger btn-sm step-del" data-step-id="${s.id}">&times;</button>
+                    </div>
+                </div>`;
+            }
+        } else {
+            html += `<p style="color:var(--text-muted);font-size:0.82rem;">No steps yet.</p>`;
+        }
+
+        html += `</div>
+            <div class="step-add-form">
+                <input type="text" id="new-step-desc" placeholder="New step description...">
+                <input type="number" id="new-step-order" placeholder="#" style="width:60px;" value="${steps ? steps.length + 1 : 1}">
+                <button class="btn btn-secondary btn-sm" id="add-step-btn">Add Step</button>
+            </div></div>`;
+
+        slot.innerHTML = html;
+
+        // Status change
+        slot.querySelectorAll('.step-status-select').forEach(sel => {
+            sel.onchange = async () => {
+                try {
+                    const { error } = await sb.from('home_project_steps').update({ status: sel.value }).eq('id', sel.dataset.stepId);
+                    if (error) throw error;
+                    toast('Step updated'); loadProjectSteps(projectId);
+                } catch (e) { toast(e.message, 'error'); }
+            };
+        });
+
+        // Date change
+        slot.querySelectorAll('.step-date-input').forEach(inp => {
+            inp.onchange = async () => {
+                try {
+                    const { error } = await sb.from('home_project_steps').update({ date: inp.value || null }).eq('id', inp.dataset.stepId);
+                    if (error) throw error;
+                    toast('Date updated');
+                } catch (e) { toast(e.message, 'error'); }
+            };
+        });
+
+        // Delete step
+        slot.querySelectorAll('.step-del').forEach(btn => {
+            btn.onclick = async () => {
+                try {
+                    const { error } = await sb.from('home_project_steps').delete().eq('id', btn.dataset.stepId);
+                    if (error) throw error;
+                    toast('Step removed'); loadProjectSteps(projectId);
+                } catch (e) { toast(e.message, 'error'); }
+            };
+        });
+
+        // Add step
+        $('#add-step-btn').onclick = async () => {
+            const desc = $('#new-step-desc').value.trim();
+            if (!desc) { toast('Description required', 'error'); return; }
+            const order = parseInt($('#new-step-order').value, 10) || (steps ? steps.length + 1 : 1);
+            try {
+                const { error } = await sb.from('home_project_steps')
+                    .insert({ project_id: projectId, description: desc, sort_order: order });
+                if (error) throw error;
+                toast('Step added'); loadProjectSteps(projectId);
+            } catch (e) { toast(e.message, 'error'); }
+        };
+
+    } catch (e) { slot.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+}
+
+// ============================================================
+// HOME: PROJECT NOTES
+// ============================================================
+async function loadProjectNotes(projectId) {
+    const slot = $('#notes-slot');
+    if (!slot) return;
+
+    try {
+        const { data: notes, error } = await sb.from('home_project_notes')
+            .select('*').eq('project_id', projectId).order('date', { ascending: false });
+        if (error) throw error;
+
+        let html = `<div class="sub-section"><h4>Notes Log</h4>
+            <div class="note-add-form">
+                <textarea id="new-note-content" placeholder="Add a note..."></textarea>
+                <button class="btn btn-secondary btn-sm" id="add-note-btn">Add Note</button>
+            </div>
+            <div class="notes-list">`;
+
+        if (notes && notes.length > 0) {
+            for (const n of notes) {
+                const dateStr = n.date ? new Date(n.date).toLocaleDateString() : '';
+                html += `<div class="note-card" data-note-id="${n.id}">
+                    <div class="note-content">${esc(n.content)}</div>
+                    <div class="note-footer">
+                        <span class="note-date">${dateStr}</span>
+                        <div class="note-actions">
+                            <button class="btn btn-secondary btn-sm note-edit" data-note-id="${n.id}">Edit</button>
+                            <button class="btn btn-danger btn-sm note-del" data-note-id="${n.id}">&times;</button>
+                        </div>
+                    </div>
+                </div>`;
+            }
+        } else {
+            html += `<p style="color:var(--text-muted);font-size:0.82rem;">No notes yet.</p>`;
+        }
+
+        html += `</div></div>`;
+        slot.innerHTML = html;
+
+        // Add note
+        $('#add-note-btn').onclick = async () => {
+            const content = $('#new-note-content').value.trim();
+            if (!content) { toast('Note content required', 'error'); return; }
+            try {
+                const { error } = await sb.from('home_project_notes')
+                    .insert({ project_id: projectId, content });
+                if (error) throw error;
+                toast('Note added'); loadProjectNotes(projectId);
+            } catch (e) { toast(e.message, 'error'); }
+        };
+
+        // Edit note
+        slot.querySelectorAll('.note-edit').forEach(btn => {
+            btn.onclick = () => {
+                const card = btn.closest('.note-card');
+                const contentEl = card.querySelector('.note-content');
+                const current = contentEl.textContent;
+                contentEl.innerHTML = `<textarea class="note-edit-area">${esc(current)}</textarea>
+                    <div style="margin-top:0.4rem;">
+                        <button class="btn btn-primary btn-sm note-save" data-note-id="${btn.dataset.noteId}">Save</button>
+                        <button class="btn btn-secondary btn-sm note-cancel">Cancel</button>
+                    </div>`;
+                card.querySelector('.note-cancel').onclick = () => loadProjectNotes(projectId);
+                card.querySelector('.note-save').onclick = async () => {
+                    const newContent = card.querySelector('.note-edit-area').value.trim();
+                    if (!newContent) { toast('Content required', 'error'); return; }
+                    try {
+                        const { error } = await sb.from('home_project_notes')
+                            .update({ content: newContent, updated_at: new Date().toISOString() })
+                            .eq('id', btn.dataset.noteId);
+                        if (error) throw error;
+                        toast('Note updated'); loadProjectNotes(projectId);
+                    } catch (e) { toast(e.message, 'error'); }
+                };
+            };
+        });
+
+        // Delete note
+        slot.querySelectorAll('.note-del').forEach(btn => {
+            btn.onclick = async () => {
+                try {
+                    const { error } = await sb.from('home_project_notes').delete().eq('id', btn.dataset.noteId);
+                    if (error) throw error;
+                    toast('Note removed'); loadProjectNotes(projectId);
+                } catch (e) { toast(e.message, 'error'); }
+            };
+        });
+
+    } catch (e) { slot.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+}
+
+// ============================================================
+// HOME: MEASUREMENT LIST
+// ============================================================
+async function loadHomeMeasurements() {
+    const container = $('#table-content');
+    container.innerHTML = `<div class="loading-screen" style="height:auto;min-height:150px;"><div class="loading-spinner"></div></div>`;
+
+    try {
+        const { data: measurements, error: mErr } = await sb.from('home_measurements')
+            .select('*').order('specific_location');
+        if (mErr) throw mErr;
+
+        const { data: areas } = await sb.from('home_areas').select('id, name').order('name');
+        const areaMap = {};
+        (areas || []).forEach(a => { areaMap[a.id] = a.name; });
+
+        let html = `<div class="page-header">
+            <h2>📏 Measurements</h2>
+            <button class="btn btn-primary btn-sm" id="add-measurement-btn">+ Add Measurement</button>
+        </div>
+        <div class="home-filters">
+            <select id="filter-m-area">
+                <option value="">All Areas</option>
+                ${(areas||[]).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+            </select>
+        </div>
+        <div id="form-slot"></div>`;
+
+        if (!measurements || measurements.length === 0) {
+            html += `<div class="empty-state"><div class="icon">📏</div><p>No measurements yet.</p></div>`;
+        } else {
+            html += `<div class="entry-list" id="measurement-list">`;
+            for (const m of measurements) {
+                const areaName = m.area_id ? (areaMap[m.area_id] || 'Unknown') : 'Unassigned';
+                const dims = [
+                    m.height ? 'H: ' + esc(m.height) : null,
+                    m.width ? 'W: ' + esc(m.width) : null,
+                    m.depth ? 'D: ' + esc(m.depth) : null,
+                ].filter(Boolean).join(' · ');
+                html += `<div class="entry-card" data-id="${m.id}" data-area="${m.area_id||''}">
+                    <div>
+                        <div class="entry-name">${esc(m.specific_location)}</div>
+                        <div class="entry-meta">${esc(areaName)}${dims ? ' · ' + dims : ''}${m.notes ? ' · ' + esc(m.notes) : ''}</div>
+                    </div>
+                    <div class="entry-actions">
+                        <button class="btn btn-secondary btn-sm edit-btn">Edit</button>
+                        <button class="btn btn-danger btn-sm del-btn">Delete</button>
+                    </div>
+                </div>`;
+            }
+            html += `</div>`;
+        }
+
+        container.innerHTML = html;
+
+        // Filter
+        if ($('#filter-m-area')) {
+            $('#filter-m-area').onchange = () => {
+                const val = $('#filter-m-area').value;
+                container.querySelectorAll('#measurement-list .entry-card').forEach(card => {
+                    card.style.display = (!val || card.dataset.area === val) ? '' : 'none';
+                });
+            };
+        }
+
+        $('#add-measurement-btn').onclick = () => showHomeMeasurementForm(null);
+
+        container.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.onclick = (e) => { e.stopPropagation(); showHomeMeasurementForm(btn.closest('.entry-card').dataset.id); };
+        });
+        container.querySelectorAll('.del-btn').forEach(btn => {
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                const yes = await confirm('Delete Measurement', 'Delete this measurement?');
+                if (!yes) return;
+                try {
+                    await deleteRow('home_measurements', btn.closest('.entry-card').dataset.id);
+                    toast('Deleted'); loadHomeMeasurements();
+                } catch (err) { toast(err.message, 'error'); }
+            };
+        });
+
+    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+}
+
+// ============================================================
+// HOME: MEASUREMENT FORM
+// ============================================================
+async function showHomeMeasurementForm(editId) {
+    const slot = $('#form-slot');
+    slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
+
+    let existing = null;
+    if (editId) {
+        try { existing = await fetchRow('home_measurements', editId); } catch (e) {
+            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        }
+    }
+
+    const areaOpts = await loadFkOptions('home_areas', 'name', null);
+
+    const title = editId ? 'Edit Measurement' : 'New Measurement';
+    let html = `<div class="form-panel"><h3>${title}</h3>`;
+
+    for (const f of HOME_MEASUREMENT_FIELDS) {
+        const val = existing ? (existing[f.key] ?? '') : '';
+        html += `<div class="form-group"><label>${esc(f.label)}${f.required ? ' *' : ''}</label>`;
+        if (f.type === 'textarea') {
+            html += `<textarea id="field-${f.key}">${esc(val)}</textarea>`;
+        } else if (f.type === 'fk') {
+            html += `<select id="field-${f.key}"><option value="">— None —</option>
+                ${areaOpts.map(o => `<option value="${o.value}"${val===o.value?' selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
+        } else {
+            html += `<input type="text" id="field-${f.key}" value="${esc(val)}">`;
+        }
+        html += `</div>`;
+    }
+
+    html += `<div class="form-actions">
+        <button class="btn btn-secondary btn-sm" id="form-cancel">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="form-save">${editId ? 'Update' : 'Create'}</button>
+    </div></div>`;
+
+    slot.innerHTML = html;
+    slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-save').onclick = async () => {
+        const row = {};
+        for (const f of HOME_MEASUREMENT_FIELDS) {
+            let v = $(`#field-${f.key}`)?.value ?? '';
+            if (f.type === 'fk') v = v || null;
+            else v = v.trim() || null;
+            if (f.required && !v) { toast(`${f.label} is required`, 'error'); return; }
+            row[f.key] = v;
+        }
+        try {
+            if (editId) { await updateRow('home_measurements', editId, row); toast('Updated'); }
+            else { await insertRow('home_measurements', row); toast('Created'); }
+            clearFkCache(); slot.innerHTML = ''; loadHomeMeasurements();
+        } catch (e) { toast(e.message, 'error'); }
+    };
 }
 
 // ============================================================
