@@ -269,6 +269,44 @@ const HOME_MEASUREMENT_FIELDS = [
 ];
 
 // ============================================================
+// ENTERTAINMENT TABLE CONFIGURATIONS
+// ============================================================
+const ENT_SIMPLE_TABLES = {
+    ent_regions: {
+        label: 'Regions', icon: '🗺️',
+        display: ['name','type'],
+        fields: [
+            { key:'name', label:'Name', type:'text', required:true },
+            { key:'type', label:'Type', type:'select', options:['Local','Vacation'], required:true },
+            { key:'notes', label:'Notes', type:'textarea' },
+        ]
+    },
+    ent_neighborhoods: {
+        label: 'Areas', icon: '📍',
+        display: ['name'],
+        fields: [
+            { key:'name', label:'Name', type:'text', required:true },
+            { key:'region_id', label:'Region', type:'fk', fkTable:'ent_regions', fkLabel:'name' },
+        ]
+    },
+};
+
+const ENT_PLACE_FIELDS = [
+    { key:'name', label:'Name', type:'text', required:true },
+    { key:'neighborhood_id', label:'Area', type:'fk', fkTable:'ent_neighborhoods', fkLabel:'name' },
+    { key:'address', label:'Address', type:'text' },
+    { key:'type', label:'Type', type:'select', options:['Restaurant','Bar','Cocktail Bar','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Live Music Venue','Breakfast'] },
+    { key:'food_cost', label:'Food Cost', type:'text' },
+    { key:'drink_cost', label:'Drink Cost', type:'text' },
+    { key:'happy_hour', label:'Happy Hour', type:'text' },
+    { key:'gluten_free', label:'Gluten Free', type:'text' },
+    { key:'rating', label:'Rating', type:'text' },
+    { key:'status', label:'Status', type:'select', options:['Want to Try','Been There','Regular','Favorite','Closed','Not Interested'] },
+    { key:'url', label:'Website', type:'text' },
+    { key:'notes', label:'Notes', type:'textarea' },
+];
+
+// ============================================================
 // STATE
 // ============================================================
 let currentUser = null;
@@ -300,6 +338,10 @@ async function handleRoute() {
             if (path.length >= 2) renderTableView(null, path[1], SS_TABLES, false);
             else renderSSWorkspace(); break;
         case 'home': renderHomeWorkspace(); break;
+        case 'entertainment':
+            if (path[1] === 'places') renderPlacesWorkspace();
+            else renderEntertainmentHub();
+            break;
         default: renderHome();
     }
 }
@@ -517,6 +559,11 @@ function renderHome() {
                 <div class="icon">🏠</div>
                 <h3>Home</h3>
                 <p>Projects, measurements, improvements</p>
+            </div>
+            <div class="choice-card" onclick="navigate('#entertainment')">
+                <div class="icon">🎭</div>
+                <h3>Entertainment</h3>
+                <p>Local spots, vacation finds, reviews</p>
             </div>
             <div class="choice-card disabled">
                 <div class="icon">🎮</div>
@@ -1483,6 +1530,275 @@ async function showHomeMeasurementForm(editId) {
             if (editId) { await updateRow('home_measurements', editId, row); toast('Updated'); }
             else { await insertRow('home_measurements', row); toast('Created'); }
             clearFkCache(); slot.innerHTML = ''; loadHomeMeasurements();
+        } catch (e) { toast(e.message, 'error'); }
+    };
+}
+
+// ============================================================
+// RENDER: ENTERTAINMENT HUB
+// ============================================================
+function renderEntertainmentHub() {
+    app().innerHTML = topbar()
+        + breadcrumb([{label:'Home',href:'#'},{label:'Entertainment'}])
+        + `<div class="page">
+        <div class="page-header"><h2>Entertainment</h2></div>
+        <div class="choice-grid">
+            <div class="choice-card" onclick="navigate('#entertainment/places')">
+                <div class="icon">📍</div>
+                <h3>Places</h3>
+                <p>Restaurants, bars, cafes, local spots & vacation finds</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+// ============================================================
+// RENDER: PLACES WORKSPACE
+// ============================================================
+function renderPlacesWorkspace() {
+    const tabs = [
+        { key:'local', icon:'🏠', label:'Local' },
+        { key:'vacation', icon:'✈️', label:'Vacation' },
+        { key:'regions', icon:'🗺️', label:'Regions' },
+        { key:'areas', icon:'📍', label:'Areas' },
+    ];
+
+    app().innerHTML = topbar()
+        + breadcrumb([{label:'Home',href:'#'},{label:'Entertainment',href:'#entertainment'},{label:'Places'}])
+        + `<div class="tab-bar" id="ent-tabs">${tabs.map((t, i) =>
+            `<button class="tab${i===0?' active':''}" data-tab="${t.key}">${t.icon} ${t.label}</button>`
+        ).join('')}</div>
+        <div id="table-content" class="page">
+            <div class="loading-screen" style="height:auto;min-height:200px;"><div class="loading-spinner"></div></div>
+        </div>`;
+
+    document.querySelectorAll('#ent-tabs .tab').forEach(tab => {
+        tab.onclick = () => {
+            document.querySelectorAll('#ent-tabs .tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const key = tab.dataset.tab;
+            if (key === 'local') loadPlacesList('Local');
+            else if (key === 'vacation') loadPlacesList('Vacation');
+            else if (key === 'regions') loadTableList(null, 'ent_regions', ENT_SIMPLE_TABLES, false);
+            else loadTableList(null, 'ent_neighborhoods', ENT_SIMPLE_TABLES, false);
+        };
+    });
+
+    loadPlacesList('Local');
+}
+
+// ============================================================
+// ENTERTAINMENT: PLACES LIST (filtered by region type)
+// ============================================================
+async function loadPlacesList(regionType) {
+    const container = $('#table-content');
+    container.innerHTML = `<div class="loading-screen" style="height:auto;min-height:150px;"><div class="loading-spinner"></div></div>`;
+
+    try {
+        // Load regions of this type
+        const { data: regions, error: rErr } = await sb.from('ent_regions')
+            .select('id, name').eq('type', regionType).order('name');
+        if (rErr) throw rErr;
+        const regionIds = (regions || []).map(r => r.id);
+
+        // Load neighborhoods in those regions
+        let neighborhoods = [];
+        if (regionIds.length > 0) {
+            const { data: nbData, error: nErr } = await sb.from('ent_neighborhoods')
+                .select('id, name, region_id').in('region_id', regionIds).order('name');
+            if (nErr) throw nErr;
+            neighborhoods = nbData || [];
+        }
+        const neighborhoodIds = neighborhoods.map(n => n.id);
+        const neighborhoodMap = {};
+        neighborhoods.forEach(n => { neighborhoodMap[n.id] = n.name; });
+
+        // Load places in those neighborhoods
+        let places = [];
+        if (neighborhoodIds.length > 0) {
+            const { data: pData, error: pErr } = await sb.from('ent_places')
+                .select('*').in('neighborhood_id', neighborhoodIds).order('name');
+            if (pErr) throw pErr;
+            places = pData || [];
+        }
+
+        const typeLabel = regionType === 'Local' ? 'Local Places' : 'Vacation Places';
+        let html = `<div class="page-header">
+            <h2>${regionType === 'Local' ? '🏠' : '✈️'} ${typeLabel}</h2>
+            <button class="btn btn-primary btn-sm" id="add-place-btn">+ Add Place</button>
+        </div>
+        <div class="home-filters">
+            <select id="filter-place-area">
+                <option value="">All Areas</option>
+                ${neighborhoods.map(n => `<option value="${n.id}">${esc(n.name)}</option>`).join('')}
+            </select>
+            <select id="filter-place-type">
+                <option value="">All Types</option>
+                ${ENT_PLACE_FIELDS.find(f => f.key === 'type').options.map(o => `<option value="${o}">${o}</option>`).join('')}
+            </select>
+            <select id="filter-place-status">
+                <option value="">All Statuses</option>
+                ${ENT_PLACE_FIELDS.find(f => f.key === 'status').options.map(o => `<option value="${o}">${o}</option>`).join('')}
+            </select>
+        </div>
+        <div id="form-slot"></div>`;
+
+        if (places.length === 0) {
+            html += `<div class="empty-state">
+                <div class="icon">${regionType === 'Local' ? '🏠' : '✈️'}</div>
+                <p>No ${typeLabel.toLowerCase()} yet.${regionIds.length === 0 ? ' Create a region first in the Regions tab.' : neighborhoodIds.length === 0 ? ' Create an area first in the Areas tab.' : ''}</p>
+            </div>`;
+        } else {
+            html += `<div class="entry-list" id="places-list">`;
+            for (const p of places) {
+                const areaName = p.neighborhood_id ? (neighborhoodMap[p.neighborhood_id] || '') : '';
+                const costParts = [
+                    p.food_cost ? 'Food: ' + esc(p.food_cost) : null,
+                    p.drink_cost ? 'Drinks: ' + esc(p.drink_cost) : null,
+                    p.happy_hour ? 'HH: ' + esc(p.happy_hour) : null,
+                ].filter(Boolean).join(' · ');
+                const statusClass = p.status === 'Favorite' ? 'status-complete'
+                    : p.status === 'Been There' || p.status === 'Regular' ? 'status-active'
+                    : p.status === 'Closed' ? 'status-hold'
+                    : p.status === 'Not Interested' ? 'status-hold'
+                    : 'status-default';
+
+                html += `<div class="entry-card" data-id="${p.id}" data-area="${p.neighborhood_id||''}" data-type="${esc(p.type||'')}" data-status="${esc(p.status||'')}">
+                    <div>
+                        <div class="entry-name">${esc(p.name)}</div>
+                        <div class="entry-meta">
+                            ${p.status ? `<span class="status-badge ${statusClass}">${esc(p.status)}</span>` : ''}
+                            ${p.type ? ' · ' + esc(p.type) : ''}
+                            ${areaName ? ' · ' + esc(areaName) : ''}
+                        </div>
+                        ${costParts ? `<div class="entry-meta">${costParts}</div>` : ''}
+                        ${p.gluten_free ? `<div class="entry-meta">GF: ${esc(p.gluten_free)}</div>` : ''}
+                    </div>
+                    <div class="entry-actions">
+                        <button class="btn btn-secondary btn-sm edit-btn">Edit</button>
+                        <button class="btn btn-danger btn-sm del-btn">Delete</button>
+                    </div>
+                </div>`;
+            }
+            html += `</div>`;
+        }
+
+        container.innerHTML = html;
+
+        // Filters
+        const applyFilters = () => {
+            const av = $('#filter-place-area')?.value || '';
+            const tv = $('#filter-place-type')?.value || '';
+            const sv = $('#filter-place-status')?.value || '';
+            container.querySelectorAll('#places-list .entry-card').forEach(card => {
+                const ok = (!av || card.dataset.area === av)
+                        && (!tv || card.dataset.type === tv)
+                        && (!sv || card.dataset.status === sv);
+                card.style.display = ok ? '' : 'none';
+            });
+        };
+        ['#filter-place-area','#filter-place-type','#filter-place-status'].forEach(s => {
+            if ($(s)) $(s).onchange = applyFilters;
+        });
+
+        // Add button
+        if ($('#add-place-btn')) {
+            $('#add-place-btn').onclick = () => showPlaceForm(regionType, null);
+        }
+
+        // Edit buttons
+        container.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                showPlaceForm(regionType, btn.closest('.entry-card').dataset.id);
+            };
+        });
+
+        // Delete buttons
+        container.querySelectorAll('.del-btn').forEach(btn => {
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                const yes = await confirm('Delete Place', 'This will permanently delete this place. Are you sure?');
+                if (!yes) return;
+                try {
+                    await deleteRow('ent_places', btn.closest('.entry-card').dataset.id);
+                    toast('Deleted'); loadPlacesList(regionType);
+                } catch (err) { toast(err.message, 'error'); }
+            };
+        });
+
+    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+}
+
+// ============================================================
+// ENTERTAINMENT: PLACE FORM (Add / Edit)
+// ============================================================
+async function showPlaceForm(regionType, editId) {
+    const slot = $('#form-slot');
+    slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
+
+    let existing = null;
+    if (editId) {
+        try { existing = await fetchRow('ent_places', editId); } catch (e) {
+            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        }
+    }
+
+    // Load neighborhoods scoped to this region type
+    const { data: regions } = await sb.from('ent_regions')
+        .select('id').eq('type', regionType);
+    const regionIds = (regions || []).map(r => r.id);
+
+    let areaOpts = [];
+    if (regionIds.length > 0) {
+        const { data: nbData } = await sb.from('ent_neighborhoods')
+            .select('id, name').in('region_id', regionIds).order('name');
+        areaOpts = (nbData || []).map(n => ({ value: n.id, label: n.name }));
+    }
+
+    const title = editId ? 'Edit Place' : 'New Place';
+    let html = `<div class="form-panel"><h3>${title}</h3>`;
+
+    for (const f of ENT_PLACE_FIELDS) {
+        const val = existing ? (existing[f.key] ?? '') : '';
+        html += `<div class="form-group"><label>${esc(f.label)}${f.required ? ' *' : ''}</label>`;
+        if (f.type === 'textarea') {
+            html += `<textarea id="field-${f.key}">${esc(val)}</textarea>`;
+        } else if (f.type === 'select') {
+            html += `<select id="field-${f.key}"><option value="">— Select —</option>
+                ${f.options.map(o => `<option value="${esc(o)}"${val===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`;
+        } else if (f.key === 'neighborhood_id') {
+            // Use scoped area options instead of generic FK loader
+            html += `<select id="field-${f.key}"><option value="">— None —</option>
+                ${areaOpts.map(o => `<option value="${o.value}"${val===o.value?' selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
+        } else {
+            html += `<input type="text" id="field-${f.key}" value="${esc(val)}">`;
+        }
+        html += `</div>`;
+    }
+
+    html += `<div class="form-actions">
+        <button class="btn btn-secondary btn-sm" id="form-cancel">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="form-save">${editId ? 'Update' : 'Create'}</button>
+    </div></div>`;
+
+    slot.innerHTML = html;
+    slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-save').onclick = async () => {
+        const row = {};
+        for (const f of ENT_PLACE_FIELDS) {
+            let v = $(`#field-${f.key}`)?.value ?? '';
+            if (f.type === 'fk' || f.type === 'select' || f.key === 'neighborhood_id') v = v || null;
+            else v = v.trim() || null;
+            if (f.required && !v) { toast(`${f.label} is required`, 'error'); return; }
+            row[f.key] = v;
+        }
+        try {
+            if (editId) { await updateRow('ent_places', editId, row); toast('Updated'); }
+            else { await insertRow('ent_places', row); toast('Created'); }
+            clearFkCache(); slot.innerHTML = ''; loadPlacesList(regionType);
         } catch (e) { toast(e.message, 'error'); }
     };
 }
