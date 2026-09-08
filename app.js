@@ -268,6 +268,16 @@ const HOME_MEASUREMENT_FIELDS = [
     { key:'notes', label:'Notes', type:'textarea' },
 ];
 
+const ART_MEASUREMENT_FIELDS = [
+    { key:'name', label:'Name', type:'text', required:true },
+    { key:'type', label:'Type', type:'select', options:['Frame','Rug','Wall Art','Mirror','Tapestry','Sculpture','Print','Photograph','Clock','Shelf','Other'] },
+    { key:'area_id', label:'Area', type:'fk', fkTable:'home_areas', fkLabel:'name' },
+    { key:'height', label:'Height', type:'text' },
+    { key:'width', label:'Width', type:'text' },
+    { key:'depth', label:'Depth', type:'text' },
+    { key:'notes', label:'Notes', type:'textarea' },
+];
+
 // ============================================================
 // ENTERTAINMENT TABLE CONFIGURATIONS
 // ============================================================
@@ -454,7 +464,7 @@ function toast(msg, type = 'success') {
     setTimeout(() => el.remove(), 3000);
 }
 
-function confirm(title, msg) {
+function confirmDialog(title, msg) {
     return new Promise(resolve => {
         const overlay = document.createElement('div');
         overlay.className = 'dialog-overlay';
@@ -800,7 +810,7 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
             btn.onclick = async (e) => {
                 e.stopPropagation();
                 const id = btn.closest('.entry-card').dataset.id;
-                const yes = await confirm('Delete Entry', 'This will permanently delete this entry. Are you sure?');
+                const yes = await confirmDialog('Delete Entry', 'This will permanently delete this entry. Are you sure?');
                 if (!yes) return;
                 try {
                     await deleteRow(tableName, id);
@@ -1012,7 +1022,8 @@ function getStatusClass(status) {
 function renderHomeWorkspace() {
     const tabs = [
         { key:'projects', icon:'🏗️', label:'Projects' },
-        { key:'measurements', icon:'📏', label:'Measurements' },
+        { key:'measurements', icon:'📏', label:'House Measurements' },
+        { key:'art-measurements', icon:'🖼️', label:'Art Measurements' },
         { key:'areas', icon:'📍', label:'Areas' },
     ];
 
@@ -1032,6 +1043,7 @@ function renderHomeWorkspace() {
             const key = tab.dataset.tab;
             if (key === 'projects') loadHomeProjects();
             else if (key === 'measurements') loadHomeMeasurements();
+            else if (key === 'art-measurements') loadArtMeasurements();
             else loadTableList(null, 'home_areas', HOME_SIMPLE_TABLES, false);
         };
     });
@@ -1125,7 +1137,7 @@ async function loadHomeProjects() {
         container.querySelectorAll('.del-btn').forEach(btn => {
             btn.onclick = async (e) => {
                 e.stopPropagation();
-                const yes = await confirm('Delete Project', 'This will permanently delete this project and all its steps and notes. Are you sure?');
+                const yes = await confirmDialog('Delete Project', 'This will permanently delete this project and all its steps and notes. Are you sure?');
                 if (!yes) return;
                 try {
                     await deleteRow('home_projects', btn.closest('.entry-card').dataset.id);
@@ -1407,7 +1419,7 @@ async function loadHomeMeasurements() {
         (areas || []).forEach(a => { areaMap[a.id] = a.name; });
 
         let html = `<div class="page-header">
-            <h2>📏 Measurements</h2>
+            <h2>📏 House Measurements</h2>
             <button class="btn btn-primary btn-sm" id="add-measurement-btn">+ Add Measurement</button>
         </div>
         <div class="home-filters">
@@ -1463,7 +1475,7 @@ async function loadHomeMeasurements() {
         container.querySelectorAll('.del-btn').forEach(btn => {
             btn.onclick = async (e) => {
                 e.stopPropagation();
-                const yes = await confirm('Delete Measurement', 'Delete this measurement?');
+                const yes = await confirmDialog('Delete Measurement', 'Delete this measurement?');
                 if (!yes) return;
                 try {
                     await deleteRow('home_measurements', btn.closest('.entry-card').dataset.id);
@@ -1530,6 +1542,166 @@ async function showHomeMeasurementForm(editId) {
             if (editId) { await updateRow('home_measurements', editId, row); toast('Updated'); }
             else { await insertRow('home_measurements', row); toast('Created'); }
             clearFkCache(); slot.innerHTML = ''; loadHomeMeasurements();
+        } catch (e) { toast(e.message, 'error'); }
+    };
+}
+
+// ============================================================
+// HOME: ART MEASUREMENT LIST
+// ============================================================
+async function loadArtMeasurements() {
+    const container = $('#table-content');
+    container.innerHTML = `<div class="loading-screen" style="height:auto;min-height:150px;"><div class="loading-spinner"></div></div>`;
+
+    try {
+        const { data: measurements, error: mErr } = await sb.from('art_measurements')
+            .select('*').order('name');
+        if (mErr) throw mErr;
+
+        const { data: areas } = await sb.from('home_areas').select('id, name').order('name');
+        const areaMap = {};
+        (areas || []).forEach(a => { areaMap[a.id] = a.name; });
+
+        let html = `<div class="page-header">
+            <h2>🖼️ Art Measurements</h2>
+            <button class="btn btn-primary btn-sm" id="add-art-btn">+ Add Art Measurement</button>
+        </div>
+        <div class="home-filters">
+            <select id="filter-art-area">
+                <option value="">All Areas</option>
+                ${(areas||[]).map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+            </select>
+            <select id="filter-art-type">
+                <option value="">All Types</option>
+                ${ART_MEASUREMENT_FIELDS.find(f => f.key === 'type').options.map(o => `<option value="${o}">${o}</option>`).join('')}
+            </select>
+        </div>
+        <div id="form-slot"></div>`;
+
+        if (!measurements || measurements.length === 0) {
+            html += `<div class="empty-state"><div class="icon">🖼️</div><p>No art measurements yet.</p></div>`;
+        } else {
+            html += `<div class="entry-list" id="art-list">`;
+            for (const m of measurements) {
+                const areaName = m.area_id ? (areaMap[m.area_id] || 'Unknown') : '';
+                const dims = [
+                    m.height ? 'H: ' + esc(m.height) : null,
+                    m.width ? 'W: ' + esc(m.width) : null,
+                    m.depth ? 'D: ' + esc(m.depth) : null,
+                ].filter(Boolean).join(' · ');
+                html += `<div class="entry-card" data-id="${m.id}" data-area="${m.area_id||''}" data-type="${esc(m.type||'')}">
+                    <div>
+                        <div class="entry-name">${esc(m.name)}</div>
+                        <div class="entry-meta">
+                            ${m.type ? esc(m.type) : ''}
+                            ${areaName ? ' · ' + esc(areaName) : ''}
+                            ${dims ? ' · ' + dims : ''}
+                        </div>
+                        ${m.notes ? `<div class="entry-meta">${esc(m.notes)}</div>` : ''}
+                    </div>
+                    <div class="entry-actions">
+                        <button class="btn btn-secondary btn-sm edit-btn">Edit</button>
+                        <button class="btn btn-danger btn-sm del-btn">Delete</button>
+                    </div>
+                </div>`;
+            }
+            html += `</div>`;
+        }
+
+        container.innerHTML = html;
+
+        // Filters
+        const applyFilters = () => {
+            const av = $('#filter-art-area')?.value || '';
+            const tv = $('#filter-art-type')?.value || '';
+            container.querySelectorAll('#art-list .entry-card').forEach(card => {
+                const ok = (!av || card.dataset.area === av)
+                        && (!tv || card.dataset.type === tv);
+                card.style.display = ok ? '' : 'none';
+            });
+        };
+        ['#filter-art-area','#filter-art-type'].forEach(s => {
+            if ($(s)) $(s).onchange = applyFilters;
+        });
+
+        $('#add-art-btn').onclick = () => showArtMeasurementForm(null);
+
+        container.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.onclick = (e) => { e.stopPropagation(); showArtMeasurementForm(btn.closest('.entry-card').dataset.id); };
+        });
+        container.querySelectorAll('.del-btn').forEach(btn => {
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                const yes = await confirmDialog('Delete Art Measurement', 'Delete this measurement?');
+                if (!yes) return;
+                try {
+                    await deleteRow('art_measurements', btn.closest('.entry-card').dataset.id);
+                    toast('Deleted'); loadArtMeasurements();
+                } catch (err) { toast(err.message, 'error'); }
+            };
+        });
+
+    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+}
+
+// ============================================================
+// HOME: ART MEASUREMENT FORM
+// ============================================================
+async function showArtMeasurementForm(editId) {
+    const slot = $('#form-slot');
+    slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
+
+    let existing = null;
+    if (editId) {
+        try { existing = await fetchRow('art_measurements', editId); } catch (e) {
+            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        }
+    }
+
+    const areaOpts = await loadFkOptions('home_areas', 'name', null);
+
+    const title = editId ? 'Edit Art Measurement' : 'New Art Measurement';
+    let html = `<div class="form-panel"><h3>${title}</h3>`;
+
+    for (const f of ART_MEASUREMENT_FIELDS) {
+        const val = existing ? (existing[f.key] ?? '') : '';
+        html += `<div class="form-group"><label>${esc(f.label)}${f.required ? ' *' : ''}</label>`;
+        if (f.type === 'textarea') {
+            html += `<textarea id="field-${f.key}">${esc(val)}</textarea>`;
+        } else if (f.type === 'select') {
+            html += `<select id="field-${f.key}"><option value="">— Select —</option>
+                ${f.options.map(o => `<option value="${esc(o)}"${val===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`;
+        } else if (f.type === 'fk') {
+            html += `<select id="field-${f.key}"><option value="">— None —</option>
+                ${areaOpts.map(o => `<option value="${o.value}"${val===o.value?' selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
+        } else {
+            html += `<input type="text" id="field-${f.key}" value="${esc(val)}">`;
+        }
+        html += `</div>`;
+    }
+
+    html += `<div class="form-actions">
+        <button class="btn btn-secondary btn-sm" id="form-cancel">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="form-save">${editId ? 'Update' : 'Create'}</button>
+    </div></div>`;
+
+    slot.innerHTML = html;
+    slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-save').onclick = async () => {
+        const row = {};
+        for (const f of ART_MEASUREMENT_FIELDS) {
+            let v = $(`#field-${f.key}`)?.value ?? '';
+            if (f.type === 'fk' || f.type === 'select') v = v || null;
+            else v = v.trim() || null;
+            if (f.required && !v) { toast(`${f.label} is required`, 'error'); return; }
+            row[f.key] = v;
+        }
+        try {
+            if (editId) { await updateRow('art_measurements', editId, row); toast('Updated'); }
+            else { await insertRow('art_measurements', row); toast('Created'); }
+            clearFkCache(); slot.innerHTML = ''; loadArtMeasurements();
         } catch (e) { toast(e.message, 'error'); }
     };
 }
@@ -1718,7 +1890,7 @@ async function loadPlacesList(regionType) {
         container.querySelectorAll('.del-btn').forEach(btn => {
             btn.onclick = async (e) => {
                 e.stopPropagation();
-                const yes = await confirm('Delete Place', 'This will permanently delete this place. Are you sure?');
+                const yes = await confirmDialog('Delete Place', 'This will permanently delete this place. Are you sure?');
                 if (!yes) return;
                 try {
                     await deleteRow('ent_places', btn.closest('.entry-card').dataset.id);
