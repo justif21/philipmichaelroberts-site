@@ -311,7 +311,7 @@ const ENT_PLACE_FIELDS = [
     { key:'happy_hour', label:'Happy Hour', type:'text' },
     { key:'gluten_free', label:'Gluten Free', type:'text' },
     { key:'rating', label:'Rating', type:'text' },
-    { key:'status', label:'Status', type:'select', options:['Want to Try','Been There','Regular','Favorite','Closed','Not Interested'] },
+    { key:'status', label:'Status', type:'select', options:['Want to Try','Little Interest','Not Interested','Been There','Regular','Favorite','Might be Closed','Closed'] },
     { key:'url', label:'Website', type:'text' },
     { key:'notes', label:'Notes', type:'textarea' },
 ];
@@ -1831,8 +1831,9 @@ async function loadPlacesList(regionType) {
                 ].filter(Boolean).join(' · ');
                 const statusClass = p.status === 'Favorite' ? 'status-complete'
                     : p.status === 'Been There' || p.status === 'Regular' ? 'status-active'
-                    : p.status === 'Closed' ? 'status-hold'
-                    : p.status === 'Not Interested' ? 'status-hold'
+                    : p.status === 'Might be Closed' ? 'status-scheduled'
+                    : p.status === 'Closed' || p.status === 'Not Interested' ? 'status-hold'
+                    : p.status === 'Little Interest' ? 'status-default'
                     : 'status-default';
 
                 html += `<div class="entry-card" data-id="${p.id}" data-area="${p.neighborhood_id||''}" data-type="${esc(p.type||'')}" data-status="${esc(p.status||'')}">
