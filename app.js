@@ -15,7 +15,6 @@ const app = () => document.getElementById('app');
 // ============================================================
 // Field types: text, textarea, select, fk, number
 // fk fields: { type:'fk', fkTable, fkLabel } — loads options from related table
-//
 // display: array of either plain strings (field keys) or objects { key, label }
 //   - plain string: shows the raw value
 //   - { key, label }: shows "Label: value"
@@ -237,6 +236,7 @@ const SS_TABLES = {
 // ============================================================
 // HOME TABLE CONFIGURATIONS
 // ============================================================
+
 const HOME_SIMPLE_TABLES = {
     home_areas: {
         label: 'Areas', icon: '📍',
@@ -281,6 +281,7 @@ const ART_MEASUREMENT_FIELDS = [
 // ============================================================
 // ENTERTAINMENT TABLE CONFIGURATIONS
 // ============================================================
+
 const ENT_SIMPLE_TABLES = {
     ent_regions: {
         label: 'Regions', icon: '🗺️',
@@ -319,12 +320,93 @@ const ENT_PLACE_FIELDS = [
 // ============================================================
 // STATE
 // ============================================================
+
 let currentUser = null;
 let fkCache = {};  // tableName -> [{id, label}]
+
+// Unsaved form drafts are stored locally in the browser. This protects work
+// if iPadOS/Safari actually reloads or discards the page while another app or
+// tab is open. Drafts are scoped to the signed-in user and current route.
+const FORM_DRAFT_KEY = 'project-organizer-form-draft-v1';
+
+function getFormDraft() {
+    try {
+        const raw = localStorage.getItem(FORM_DRAFT_KEY);
+        if (!raw) return null;
+        const draft = JSON.parse(raw);
+        if (!draft || draft.userId !== (currentUser?.id || null)) return null;
+        return draft;
+    } catch (e) {
+        return null;
+    }
+}
+
+function getRouteFormDraft() {
+    const draft = getFormDraft();
+    if (!draft) return null;
+    return draft.hash === location.hash ? draft : null;
+}
+
+function sameDraftMeta(a, b) {
+    if (!a || !b || a.kind !== b.kind) return false;
+    const keys = ['tableName', 'seriesId', 'isNovel', 'editId', 'regionType'];
+    return keys.every(key => (a[key] ?? null) === (b[key] ?? null));
+}
+
+function clearFormDraft(meta = null) {
+    try {
+        if (!meta) {
+            localStorage.removeItem(FORM_DRAFT_KEY);
+            return;
+        }
+        const draft = getFormDraft();
+        if (draft && sameDraftMeta(draft.meta, meta)) {
+            localStorage.removeItem(FORM_DRAFT_KEY);
+        }
+    } catch (e) {}
+}
+
+function bindFormDraft(meta, rootSelector = '#form-slot') {
+    const root = $(rootSelector);
+    if (!root) return;
+
+    const existingDraft = getRouteFormDraft();
+    if (existingDraft && sameDraftMeta(existingDraft.meta, meta)) {
+        Object.entries(existingDraft.fields || {}).forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (el && root.contains(el)) el.value = value ?? '';
+        });
+    }
+
+    const persist = () => {
+        const fields = {};
+        root.querySelectorAll('input[id], textarea[id], select[id]').forEach(el => {
+            fields[el.id] = el.value;
+        });
+        try {
+            localStorage.setItem(FORM_DRAFT_KEY, JSON.stringify({
+                userId: currentUser?.id || null,
+                hash: location.hash,
+                meta,
+                fields,
+                updatedAt: new Date().toISOString(),
+            }));
+        } catch (e) {}
+    };
+
+    root.querySelectorAll('input[id], textarea[id], select[id]').forEach(el => {
+        el.addEventListener('input', persist);
+        el.addEventListener('change', persist);
+    });
+
+    // Save immediately so even an untouched open Add/Edit form can be restored.
+    persist();
+}
 
 // ============================================================
 // ROUTER
 // ============================================================
+
 function getRoute() {
     const hash = location.hash.slice(1) || '';
     const parts = hash.split('/').filter(Boolean);
@@ -337,16 +419,17 @@ async function handleRoute() {
     if (!currentUser) { renderLogin(); return; }
     const { path } = getRoute();
     if (path.length === 0) { renderHome(); return; }
-
     switch (path[0]) {
         case 'writing':       renderWritingHub(); break;
         case 'novels':        renderNovelSeries(); break;
         case 'novel':
             if (path.length >= 3) renderTableView(path[1], path[2], NOVEL_TABLES, true);
-            else renderNovelWorkspace(path[1]); break;
+            else renderNovelWorkspace(path[1]);
+            break;
         case 'short-stories':
             if (path.length >= 2) renderTableView(null, path[1], SS_TABLES, false);
-            else renderSSWorkspace(); break;
+            else renderSSWorkspace();
+            break;
         case 'home': renderHomeWorkspace(); break;
         case 'entertainment':
             if (path[1] === 'places') renderPlacesWorkspace();
@@ -361,13 +444,33 @@ window.addEventListener('hashchange', handleRoute);
 // ============================================================
 // AUTH
 // ============================================================
+
 async function init() {
     const { data: { session } } = await sb.auth.getSession();
     if (session) { currentUser = session.user; }
-    sb.auth.onAuthStateChange((_event, session) => {
-        currentUser = session?.user || null;
-        handleRoute();
+
+    // IMPORTANT: Supabase can emit SIGNED_IN again when an already-authenticated
+    // browser tab regains focus. Do not redraw the entire app unless the actual
+    // signed-in user changes. Redrawing here was closing partially completed
+    // Add/Edit forms on iPad when returning from another tab or app.
+    sb.auth.onAuthStateChange((event, session) => {
+        const previousUserId = currentUser?.id || null;
+        const nextUser = session?.user || null;
+        currentUser = nextUser;
+
+        if (event === 'SIGNED_OUT') {
+            clearFormDraft();
+            fkCache = {};
+            handleRoute();
+            return;
+        }
+
+        if (nextUser && nextUser.id !== previousUserId) {
+            if (previousUserId) clearFormDraft();
+            handleRoute();
+        }
     });
+
     handleRoute();
 }
 
@@ -386,6 +489,7 @@ async function logout() {
 // ============================================================
 // DATA HELPERS
 // ============================================================
+
 async function fetchRows(table, seriesId) {
     let q = sb.from(table).select('*').order('created_at', { ascending: false });
     if (seriesId) q = q.eq('series_id', seriesId);
@@ -456,6 +560,7 @@ function clearFkCache() { fkCache = {}; }
 // ============================================================
 // UI HELPERS
 // ============================================================
+
 function toast(msg, type = 'success') {
     const el = document.createElement('div');
     el.className = 'toast toast-' + type;
@@ -511,6 +616,7 @@ function breadcrumb(crumbs) {
 // ============================================================
 // RENDER: LOGIN
 // ============================================================
+
 function renderLogin() {
     app().innerHTML = `
     <div class="login-container">
@@ -537,14 +643,16 @@ function renderLogin() {
         const email = $('#login-email').value.trim();
         const pw = $('#login-password').value;
         if (!email || !pw) return;
-        btn.disabled = true; btn.textContent = 'Signing in...';
+        btn.disabled = true;
+        btn.textContent = 'Signing in...';
         try {
             await login(email, pw);
         } catch (e) {
             const errEl = $('#login-error');
             errEl.style.display = 'block';
             errEl.textContent = e.message || 'Login failed';
-            btn.disabled = false; btn.textContent = 'Sign In';
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
         }
     };
     btn.onclick = doLogin;
@@ -555,6 +663,7 @@ function renderLogin() {
 // ============================================================
 // RENDER: HOME
 // ============================================================
+
 function renderHome() {
     app().innerHTML = topbar() + `
     <div class="page">
@@ -587,6 +696,7 @@ function renderHome() {
 // ============================================================
 // RENDER: WRITING HUB
 // ============================================================
+
 function renderWritingHub() {
     app().innerHTML = topbar()
         + breadcrumb([{label:'Home',href:'#'},{label:'Writing'}])
@@ -610,6 +720,7 @@ function renderWritingHub() {
 // ============================================================
 // RENDER: NOVEL SERIES LIST
 // ============================================================
+
 async function renderNovelSeries() {
     app().innerHTML = topbar()
         + breadcrumb([{label:'Home',href:'#'},{label:'Writing',href:'#writing'},{label:'Novels'}])
@@ -639,44 +750,70 @@ async function renderNovelSeries() {
             }
             content += `</div>`;
         }
-        content += `<div id="series-form-slot"></div></div>`;
 
+        content += `<div id="series-form-slot"></div></div>`;
         const topHTML = topbar() + breadcrumb([{label:'Home',href:'#'},{label:'Writing',href:'#writing'},{label:'Novels'}]);
         app().innerHTML = topHTML + content;
 
         $('#add-series-btn').onclick = () => {
             const slot = $('#series-form-slot');
-            if (slot.innerHTML) { slot.innerHTML = ''; return; }
+            const draftMeta = { kind:'novel-series' };
+            if (slot.innerHTML) {
+                clearFormDraft(draftMeta);
+                slot.innerHTML = '';
+                return;
+            }
             slot.innerHTML = `
                 <div class="form-panel" style="margin-top:1rem;">
                     <h3>New Series</h3>
                     <div class="form-group"><label>Name</label><input type="text" id="ns-name"></div>
                     <div class="form-group"><label>Description</label><textarea id="ns-desc"></textarea></div>
                     <div class="form-actions">
-                        <button class="btn btn-secondary btn-sm" onclick="$('#series-form-slot').innerHTML=''">Cancel</button>
+                        <button class="btn btn-secondary btn-sm" id="ns-cancel">Cancel</button>
                         <button class="btn btn-primary btn-sm" id="ns-save">Save</button>
                     </div>
                 </div>`;
+
+            bindFormDraft(draftMeta, '#series-form-slot');
+            $('#ns-cancel').onclick = () => {
+                clearFormDraft(draftMeta);
+                slot.innerHTML = '';
+            };
+
             $('#ns-save').onclick = async () => {
                 const name = $('#ns-name').value.trim();
                 if (!name) { toast('Name is required','error'); return; }
                 try {
                     await insertRow('novel_series', { name, description: $('#ns-desc').value.trim() || null });
                     toast('Series created');
+                    clearFormDraft(draftMeta);
                     clearFkCache();
                     renderNovelSeries();
                 } catch (e) { toast(e.message, 'error'); }
             };
         };
+
+        const savedDraft = getRouteFormDraft();
+        if (savedDraft?.meta?.kind === 'novel-series') {
+            $('#add-series-btn').click();
+        }
     } catch (e) { toast(e.message, 'error'); }
 }
 
 // ============================================================
 // RENDER: NOVEL WORKSPACE (tabs for one series)
 // ============================================================
+
 async function renderNovelWorkspace(seriesId) {
     const tableKeys = Object.keys(NOVEL_TABLES);
-    const firstTable = tableKeys[0];
+    const savedDraft = getRouteFormDraft();
+    const draftTable = savedDraft?.meta?.kind === 'generic'
+        && savedDraft.meta.isNovel
+        && (savedDraft.meta.seriesId ?? null) === (seriesId ?? null)
+        && NOVEL_TABLES[savedDraft.meta.tableName]
+        ? savedDraft.meta.tableName
+        : null;
+    const firstTable = draftTable || tableKeys[0];
 
     let seriesName = 'Series';
     try {
@@ -712,9 +849,16 @@ async function renderNovelWorkspace(seriesId) {
 // ============================================================
 // RENDER: SHORT STORY WORKSPACE
 // ============================================================
+
 function renderSSWorkspace() {
     const tableKeys = Object.keys(SS_TABLES);
-    const firstTable = tableKeys[0];
+    const savedDraft = getRouteFormDraft();
+    const draftTable = savedDraft?.meta?.kind === 'generic'
+        && !savedDraft.meta.isNovel
+        && SS_TABLES[savedDraft.meta.tableName]
+        ? savedDraft.meta.tableName
+        : null;
+    const firstTable = draftTable || tableKeys[0];
 
     app().innerHTML = topbar()
         + breadcrumb([{label:'Home',href:'#'},{label:'Writing',href:'#writing'},{label:'Short Stories'}])
@@ -739,6 +883,7 @@ function renderSSWorkspace() {
 // ============================================================
 // GENERIC: TABLE LIST VIEW
 // ============================================================
+
 async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
     const container = $('#table-content');
     const config = tableConfigs[tableName];
@@ -746,6 +891,46 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
 
     try {
         const rows = await fetchRows(tableName, isNovel ? seriesId : null);
+
+        // For the short-story Stories list, load all assigned cast members in
+        // bulk so their names can be shown at a glance without opening each story.
+        const storyCastMap = {};
+        if (tableName === 'ss_stories' && rows.length > 0) {
+            const storyIds = rows.map(r => r.id);
+            const { data: castLinks, error: castError } = await sb
+                .from('ss_story_cast')
+                .select('story_id, character_id')
+                .in('story_id', storyIds);
+            if (castError) throw castError;
+
+            const characterIds = [...new Set((castLinks || []).map(link => link.character_id).filter(Boolean))];
+            const characterMap = {};
+
+            if (characterIds.length > 0) {
+                const { data: characters, error: characterError } = await sb
+                    .from('ss_characters')
+                    .select('id, name')
+                    .in('id', characterIds);
+                if (characterError) throw characterError;
+                (characters || []).forEach(character => {
+                    characterMap[character.id] = character.name || '(untitled)';
+                });
+            }
+
+            (castLinks || []).forEach(link => {
+                const characterName = characterMap[link.character_id];
+                if (!characterName) return;
+                if (!storyCastMap[link.story_id]) storyCastMap[link.story_id] = [];
+                if (!storyCastMap[link.story_id].includes(characterName)) {
+                    storyCastMap[link.story_id].push(characterName);
+                }
+            });
+
+            Object.values(storyCastMap).forEach(names => {
+                names.sort((a, b) => a.localeCompare(b));
+            });
+        }
+
         let html = `<div class="page-header">
             <h2>${config.icon} ${config.label}</h2>
             <button class="btn btn-primary btn-sm" id="add-entry-btn">+ Add ${config.label.replace(/s$/, '')}</button>
@@ -763,7 +948,6 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
                 // Build display: first item is the name, rest go to meta line
                 const firstKey = typeof config.display[0] === 'string' ? config.display[0] : config.display[0].key;
                 const nameVal = esc(row[firstKey]) || '(untitled)';
-
                 const metaParts = config.display.slice(1)
                     .map(d => {
                         if (typeof d === 'string') {
@@ -774,11 +958,13 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
                     })
                     .filter(Boolean);
                 const meta = metaParts.join(' · ');
+                const castNames = tableName === 'ss_stories' ? (storyCastMap[row.id] || []) : null;
 
                 html += `<div class="entry-card" data-id="${row.id}">
                     <div>
                         <div class="entry-name">${nameVal}</div>
                         ${meta ? `<div class="entry-meta">${meta}</div>` : ''}
+                        ${castNames ? `<div class="entry-meta">Cast: ${castNames.length ? castNames.map(name => esc(name)).join(', ') : '—'}</div>` : ''}
                     </div>
                     <div class="entry-actions">
                         <button class="btn btn-secondary btn-sm edit-btn">Edit</button>
@@ -821,21 +1007,44 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
             };
         });
 
-    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+        // If iPadOS/Safari actually reloaded the page, reopen the form that was
+        // active on this route and restore its locally saved field values.
+        const savedDraft = getRouteFormDraft();
+        if (savedDraft?.meta?.kind === 'generic'
+            && savedDraft.meta.tableName === tableName
+            && (savedDraft.meta.seriesId ?? null) === (seriesId ?? null)
+            && !!savedDraft.meta.isNovel === !!isNovel) {
+            showForm(seriesId, tableName, tableConfigs, isNovel, savedDraft.meta.editId ?? null);
+        }
+    } catch (e) {
+        container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`;
+    }
 }
 
 // ============================================================
 // GENERIC: FORM (Add / Edit)
 // ============================================================
+
 async function showForm(seriesId, tableName, tableConfigs, isNovel, editId) {
     const config = tableConfigs[tableName];
     const slot = $('#form-slot');
+    const draftMeta = {
+        kind: 'generic',
+        tableName,
+        seriesId: seriesId ?? null,
+        isNovel: !!isNovel,
+        editId: editId ?? null,
+    };
     slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
 
     let existing = null;
     if (editId) {
-        try { existing = await fetchRow(tableName, editId); } catch (e) {
-            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        try {
+            existing = await fetchRow(tableName, editId);
+        } catch (e) {
+            toast(e.message, 'error');
+            slot.innerHTML = '';
+            return;
         }
     }
 
@@ -853,7 +1062,6 @@ async function showForm(seriesId, tableName, tableConfigs, isNovel, editId) {
     for (const f of config.fields) {
         const val = existing ? (existing[f.key] ?? '') : '';
         html += `<div class="form-group"><label>${esc(f.label)}${f.required ? ' *' : ''}</label>`;
-
         if (f.type === 'textarea') {
             html += `<textarea id="field-${f.key}">${esc(val)}</textarea>`;
         } else if (f.type === 'select') {
@@ -886,9 +1094,13 @@ async function showForm(seriesId, tableName, tableConfigs, isNovel, editId) {
     }
 
     slot.innerHTML = html;
+    bindFormDraft(draftMeta);
     slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-cancel').onclick = () => {
+        clearFormDraft(draftMeta);
+        slot.innerHTML = '';
+    };
     $('#form-save').onclick = async () => {
         const row = {};
         for (const f of config.fields) {
@@ -910,6 +1122,7 @@ async function showForm(seriesId, tableName, tableConfigs, isNovel, editId) {
                 await insertRow(tableName, row);
                 toast('Created');
             }
+            clearFormDraft(draftMeta);
             clearFkCache();
             slot.innerHTML = '';
             loadTableList(seriesId, tableName, tableConfigs, isNovel);
@@ -925,6 +1138,7 @@ async function showForm(seriesId, tableName, tableConfigs, isNovel, editId) {
 // ============================================================
 // GENERIC: JUNCTION MANAGEMENT
 // ============================================================
+
 async function loadJunctions(seriesId, parentId, junctions) {
     const slot = $('#junction-slot');
     if (!slot) return;
@@ -994,6 +1208,7 @@ async function loadJunctions(seriesId, parentId, junctions) {
 // ============================================================
 // UNUSED ROUTE HANDLER (placeholder for direct table deep-links)
 // ============================================================
+
 function renderTableView(seriesId, tableName, tableConfigs, isNovel) {
     if (isNovel && seriesId) {
         renderNovelWorkspace(seriesId);
@@ -1005,12 +1220,14 @@ function renderTableView(seriesId, tableName, tableConfigs, isNovel) {
 // ============================================================
 // HOME SECTION — HELPERS
 // ============================================================
+
 function getStatusClass(status) {
     switch (status) {
         case 'Complete': return 'status-complete';
         case 'In Progress': return 'status-active';
         case 'Scheduled': return 'status-scheduled';
-        case 'Planning': case 'Researching': return 'status-planning';
+        case 'Planning':
+        case 'Researching': return 'status-planning';
         case 'On Hold': return 'status-hold';
         default: return 'status-default';
     }
@@ -1019,6 +1236,7 @@ function getStatusClass(status) {
 // ============================================================
 // RENDER: HOME WORKSPACE
 // ============================================================
+
 function renderHomeWorkspace() {
     const tabs = [
         { key:'projects', icon:'🏗️', label:'Projects' },
@@ -1026,11 +1244,16 @@ function renderHomeWorkspace() {
         { key:'art-measurements', icon:'🖼️', label:'Art Measurements' },
         { key:'areas', icon:'📍', label:'Areas' },
     ];
+    const savedDraft = getRouteFormDraft();
+    let initialTab = 'projects';
+    if (savedDraft?.meta?.kind === 'home-measurement') initialTab = 'measurements';
+    else if (savedDraft?.meta?.kind === 'art-measurement') initialTab = 'art-measurements';
+    else if (savedDraft?.meta?.kind === 'generic' && savedDraft.meta.tableName === 'home_areas') initialTab = 'areas';
 
     app().innerHTML = topbar()
         + breadcrumb([{label:'Home',href:'#'},{label:'Home'}])
-        + `<div class="tab-bar" id="home-tabs">${tabs.map((t, i) =>
-            `<button class="tab${i===0?' active':''}" data-tab="${t.key}">${t.icon} ${t.label}</button>`
+        + `<div class="tab-bar" id="home-tabs">${tabs.map(t =>
+            `<button class="tab${t.key===initialTab?' active':''}" data-tab="${t.key}">${t.icon} ${t.label}</button>`
         ).join('')}</div>
         <div id="table-content" class="page">
             <div class="loading-screen" style="height:auto;min-height:200px;"><div class="loading-spinner"></div></div>
@@ -1048,12 +1271,16 @@ function renderHomeWorkspace() {
         };
     });
 
-    loadHomeProjects();
+    if (initialTab === 'projects') loadHomeProjects();
+    else if (initialTab === 'measurements') loadHomeMeasurements();
+    else if (initialTab === 'art-measurements') loadArtMeasurements();
+    else loadTableList(null, 'home_areas', HOME_SIMPLE_TABLES, false);
 }
 
 // ============================================================
 // HOME: PROJECT LIST
 // ============================================================
+
 async function loadHomeProjects() {
     const container = $('#table-content');
     container.innerHTML = `<div class="loading-screen" style="height:auto;min-height:150px;"><div class="loading-spinner"></div></div>`;
@@ -1115,7 +1342,6 @@ async function loadHomeProjects() {
 
         container.innerHTML = html;
 
-        // Filters
         const applyFilters = () => {
             const sv = $('#filter-status')?.value || '';
             const av = $('#filter-area')?.value || '';
@@ -1127,10 +1353,12 @@ async function loadHomeProjects() {
                 card.style.display = ok ? '' : 'none';
             });
         };
-        ['#filter-status','#filter-area','#filter-type'].forEach(s => { if ($(s)) $(s).onchange = applyFilters; });
+
+        ['#filter-status','#filter-area','#filter-type'].forEach(s => {
+            if ($(s)) $(s).onchange = applyFilters;
+        });
 
         $('#add-project-btn').onclick = () => showHomeProjectForm(null);
-
         container.querySelectorAll('.edit-btn').forEach(btn => {
             btn.onclick = (e) => { e.stopPropagation(); showHomeProjectForm(btn.closest('.entry-card').dataset.id); };
         });
@@ -1141,30 +1369,41 @@ async function loadHomeProjects() {
                 if (!yes) return;
                 try {
                     await deleteRow('home_projects', btn.closest('.entry-card').dataset.id);
-                    toast('Deleted'); loadHomeProjects();
+                    toast('Deleted');
+                    loadHomeProjects();
                 } catch (err) { toast(err.message, 'error'); }
             };
         });
-
-    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+        const savedDraft = getRouteFormDraft();
+        if (savedDraft?.meta?.kind === 'home-project') {
+            showHomeProjectForm(savedDraft.meta.editId ?? null);
+        }
+    } catch (e) {
+        container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`;
+    }
 }
 
 // ============================================================
 // HOME: PROJECT FORM (Add / Edit) + STEPS + NOTES
 // ============================================================
+
 async function showHomeProjectForm(editId) {
     const slot = $('#form-slot');
+    const draftMeta = { kind:'home-project', editId: editId ?? null };
     slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
 
     let existing = null;
     if (editId) {
-        try { existing = await fetchRow('home_projects', editId); } catch (e) {
-            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        try {
+            existing = await fetchRow('home_projects', editId);
+        } catch (e) {
+            toast(e.message, 'error');
+            slot.innerHTML = '';
+            return;
         }
     }
 
     const areaOpts = await loadFkOptions('home_areas', 'name', null);
-
     const title = editId ? 'Edit Project' : 'New Project';
     let html = `<div class="form-panel"><h3>${title}</h3>`;
 
@@ -1193,9 +1432,10 @@ async function showHomeProjectForm(editId) {
     if (editId) html += `<div id="steps-slot"></div><div id="notes-slot"></div>`;
 
     slot.innerHTML = html;
+    bindFormDraft(draftMeta);
     slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-cancel').onclick = () => { clearFormDraft(draftMeta); slot.innerHTML = ''; };
     $('#form-save').onclick = async () => {
         const row = {};
         for (const f of HOME_PROJECT_FIELDS) {
@@ -1208,16 +1448,23 @@ async function showHomeProjectForm(editId) {
         try {
             if (editId) { await updateRow('home_projects', editId, row); toast('Updated'); }
             else { await insertRow('home_projects', row); toast('Created'); }
-            clearFkCache(); slot.innerHTML = ''; loadHomeProjects();
+            clearFormDraft(draftMeta);
+            clearFkCache();
+            slot.innerHTML = '';
+            loadHomeProjects();
         } catch (e) { toast(e.message, 'error'); }
     };
 
-    if (editId) { loadProjectSteps(editId); loadProjectNotes(editId); }
+    if (editId) {
+        loadProjectSteps(editId);
+        loadProjectNotes(editId);
+    }
 }
 
 // ============================================================
 // HOME: PROJECT STEPS
 // ============================================================
+
 async function loadProjectSteps(projectId) {
     const slot = $('#steps-slot');
     if (!slot) return;
@@ -1228,10 +1475,12 @@ async function loadProjectSteps(projectId) {
         if (error) throw error;
 
         let html = `<div class="sub-section"><h4>Steps</h4><div class="steps-list">`;
-
         if (steps && steps.length > 0) {
             for (const s of steps) {
-                const statusClass = s.status === 'Complete' ? 'step-complete' : s.status === 'In Progress' ? 'step-active' : s.status === 'Skipped' ? 'step-skipped' : 'step-pending';
+                const statusClass = s.status === 'Complete' ? 'step-complete'
+                    : s.status === 'In Progress' ? 'step-active'
+                    : s.status === 'Skipped' ? 'step-skipped'
+                    : 'step-pending';
                 html += `<div class="step-card ${statusClass}" data-step-id="${s.id}">
                     <div class="step-info">
                         <span class="step-order">${s.sort_order != null ? s.sort_order : ''}</span>
@@ -1261,18 +1510,17 @@ async function loadProjectSteps(projectId) {
 
         slot.innerHTML = html;
 
-        // Status change
         slot.querySelectorAll('.step-status-select').forEach(sel => {
             sel.onchange = async () => {
                 try {
                     const { error } = await sb.from('home_project_steps').update({ status: sel.value }).eq('id', sel.dataset.stepId);
                     if (error) throw error;
-                    toast('Step updated'); loadProjectSteps(projectId);
+                    toast('Step updated');
+                    loadProjectSteps(projectId);
                 } catch (e) { toast(e.message, 'error'); }
             };
         });
 
-        // Date change
         slot.querySelectorAll('.step-date-input').forEach(inp => {
             inp.onchange = async () => {
                 try {
@@ -1283,18 +1531,17 @@ async function loadProjectSteps(projectId) {
             };
         });
 
-        // Delete step
         slot.querySelectorAll('.step-del').forEach(btn => {
             btn.onclick = async () => {
                 try {
                     const { error } = await sb.from('home_project_steps').delete().eq('id', btn.dataset.stepId);
                     if (error) throw error;
-                    toast('Step removed'); loadProjectSteps(projectId);
+                    toast('Step removed');
+                    loadProjectSteps(projectId);
                 } catch (e) { toast(e.message, 'error'); }
             };
         });
 
-        // Add step
         $('#add-step-btn').onclick = async () => {
             const desc = $('#new-step-desc').value.trim();
             if (!desc) { toast('Description required', 'error'); return; }
@@ -1303,16 +1550,19 @@ async function loadProjectSteps(projectId) {
                 const { error } = await sb.from('home_project_steps')
                     .insert({ project_id: projectId, description: desc, sort_order: order });
                 if (error) throw error;
-                toast('Step added'); loadProjectSteps(projectId);
+                toast('Step added');
+                loadProjectSteps(projectId);
             } catch (e) { toast(e.message, 'error'); }
         };
-
-    } catch (e) { slot.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+    } catch (e) {
+        slot.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`;
+    }
 }
 
 // ============================================================
 // HOME: PROJECT NOTES
 // ============================================================
+
 async function loadProjectNotes(projectId) {
     const slot = $('#notes-slot');
     if (!slot) return;
@@ -1350,7 +1600,6 @@ async function loadProjectNotes(projectId) {
         html += `</div></div>`;
         slot.innerHTML = html;
 
-        // Add note
         $('#add-note-btn').onclick = async () => {
             const content = $('#new-note-content').value.trim();
             if (!content) { toast('Note content required', 'error'); return; }
@@ -1358,11 +1607,11 @@ async function loadProjectNotes(projectId) {
                 const { error } = await sb.from('home_project_notes')
                     .insert({ project_id: projectId, content });
                 if (error) throw error;
-                toast('Note added'); loadProjectNotes(projectId);
+                toast('Note added');
+                loadProjectNotes(projectId);
             } catch (e) { toast(e.message, 'error'); }
         };
 
-        // Edit note
         slot.querySelectorAll('.note-edit').forEach(btn => {
             btn.onclick = () => {
                 const card = btn.closest('.note-card');
@@ -1373,6 +1622,7 @@ async function loadProjectNotes(projectId) {
                         <button class="btn btn-primary btn-sm note-save" data-note-id="${btn.dataset.noteId}">Save</button>
                         <button class="btn btn-secondary btn-sm note-cancel">Cancel</button>
                     </div>`;
+
                 card.querySelector('.note-cancel').onclick = () => loadProjectNotes(projectId);
                 card.querySelector('.note-save').onclick = async () => {
                     const newContent = card.querySelector('.note-edit-area').value.trim();
@@ -1382,29 +1632,32 @@ async function loadProjectNotes(projectId) {
                             .update({ content: newContent, updated_at: new Date().toISOString() })
                             .eq('id', btn.dataset.noteId);
                         if (error) throw error;
-                        toast('Note updated'); loadProjectNotes(projectId);
+                        toast('Note updated');
+                        loadProjectNotes(projectId);
                     } catch (e) { toast(e.message, 'error'); }
                 };
             };
         });
 
-        // Delete note
         slot.querySelectorAll('.note-del').forEach(btn => {
             btn.onclick = async () => {
                 try {
                     const { error } = await sb.from('home_project_notes').delete().eq('id', btn.dataset.noteId);
                     if (error) throw error;
-                    toast('Note removed'); loadProjectNotes(projectId);
+                    toast('Note removed');
+                    loadProjectNotes(projectId);
                 } catch (e) { toast(e.message, 'error'); }
             };
         });
-
-    } catch (e) { slot.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+    } catch (e) {
+        slot.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`;
+    }
 }
 
 // ============================================================
 // HOME: MEASUREMENT LIST
 // ============================================================
+
 async function loadHomeMeasurements() {
     const container = $('#table-content');
     container.innerHTML = `<div class="loading-screen" style="height:auto;min-height:150px;"><div class="loading-spinner"></div></div>`;
@@ -1441,6 +1694,7 @@ async function loadHomeMeasurements() {
                     m.width ? 'W: ' + esc(m.width) : null,
                     m.depth ? 'D: ' + esc(m.depth) : null,
                 ].filter(Boolean).join(' · ');
+
                 html += `<div class="entry-card" data-id="${m.id}" data-area="${m.area_id||''}">
                     <div>
                         <div class="entry-name">${esc(m.specific_location)}</div>
@@ -1457,7 +1711,6 @@ async function loadHomeMeasurements() {
 
         container.innerHTML = html;
 
-        // Filter
         if ($('#filter-m-area')) {
             $('#filter-m-area').onchange = () => {
                 const val = $('#filter-m-area').value;
@@ -1468,7 +1721,6 @@ async function loadHomeMeasurements() {
         }
 
         $('#add-measurement-btn').onclick = () => showHomeMeasurementForm(null);
-
         container.querySelectorAll('.edit-btn').forEach(btn => {
             btn.onclick = (e) => { e.stopPropagation(); showHomeMeasurementForm(btn.closest('.entry-card').dataset.id); };
         });
@@ -1479,30 +1731,41 @@ async function loadHomeMeasurements() {
                 if (!yes) return;
                 try {
                     await deleteRow('home_measurements', btn.closest('.entry-card').dataset.id);
-                    toast('Deleted'); loadHomeMeasurements();
+                    toast('Deleted');
+                    loadHomeMeasurements();
                 } catch (err) { toast(err.message, 'error'); }
             };
         });
-
-    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+        const savedDraft = getRouteFormDraft();
+        if (savedDraft?.meta?.kind === 'home-measurement') {
+            showHomeMeasurementForm(savedDraft.meta.editId ?? null);
+        }
+    } catch (e) {
+        container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`;
+    }
 }
 
 // ============================================================
 // HOME: MEASUREMENT FORM
 // ============================================================
+
 async function showHomeMeasurementForm(editId) {
     const slot = $('#form-slot');
+    const draftMeta = { kind:'home-measurement', editId: editId ?? null };
     slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
 
     let existing = null;
     if (editId) {
-        try { existing = await fetchRow('home_measurements', editId); } catch (e) {
-            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        try {
+            existing = await fetchRow('home_measurements', editId);
+        } catch (e) {
+            toast(e.message, 'error');
+            slot.innerHTML = '';
+            return;
         }
     }
 
     const areaOpts = await loadFkOptions('home_areas', 'name', null);
-
     const title = editId ? 'Edit Measurement' : 'New Measurement';
     let html = `<div class="form-panel"><h3>${title}</h3>`;
 
@@ -1526,9 +1789,10 @@ async function showHomeMeasurementForm(editId) {
     </div></div>`;
 
     slot.innerHTML = html;
+    bindFormDraft(draftMeta);
     slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-cancel').onclick = () => { clearFormDraft(draftMeta); slot.innerHTML = ''; };
     $('#form-save').onclick = async () => {
         const row = {};
         for (const f of HOME_MEASUREMENT_FIELDS) {
@@ -1541,7 +1805,10 @@ async function showHomeMeasurementForm(editId) {
         try {
             if (editId) { await updateRow('home_measurements', editId, row); toast('Updated'); }
             else { await insertRow('home_measurements', row); toast('Created'); }
-            clearFkCache(); slot.innerHTML = ''; loadHomeMeasurements();
+            clearFormDraft(draftMeta);
+            clearFkCache();
+            slot.innerHTML = '';
+            loadHomeMeasurements();
         } catch (e) { toast(e.message, 'error'); }
     };
 }
@@ -1549,6 +1816,7 @@ async function showHomeMeasurementForm(editId) {
 // ============================================================
 // HOME: ART MEASUREMENT LIST
 // ============================================================
+
 async function loadArtMeasurements() {
     const container = $('#table-content');
     container.innerHTML = `<div class="loading-screen" style="height:auto;min-height:150px;"><div class="loading-spinner"></div></div>`;
@@ -1589,6 +1857,7 @@ async function loadArtMeasurements() {
                     m.width ? 'W: ' + esc(m.width) : null,
                     m.depth ? 'D: ' + esc(m.depth) : null,
                 ].filter(Boolean).join(' · ');
+
                 html += `<div class="entry-card" data-id="${m.id}" data-area="${m.area_id||''}" data-type="${esc(m.type||'')}">
                     <div>
                         <div class="entry-name">${esc(m.name)}</div>
@@ -1610,7 +1879,6 @@ async function loadArtMeasurements() {
 
         container.innerHTML = html;
 
-        // Filters
         const applyFilters = () => {
             const av = $('#filter-art-area')?.value || '';
             const tv = $('#filter-art-type')?.value || '';
@@ -1620,12 +1888,12 @@ async function loadArtMeasurements() {
                 card.style.display = ok ? '' : 'none';
             });
         };
+
         ['#filter-art-area','#filter-art-type'].forEach(s => {
             if ($(s)) $(s).onchange = applyFilters;
         });
 
         $('#add-art-btn').onclick = () => showArtMeasurementForm(null);
-
         container.querySelectorAll('.edit-btn').forEach(btn => {
             btn.onclick = (e) => { e.stopPropagation(); showArtMeasurementForm(btn.closest('.entry-card').dataset.id); };
         });
@@ -1636,30 +1904,41 @@ async function loadArtMeasurements() {
                 if (!yes) return;
                 try {
                     await deleteRow('art_measurements', btn.closest('.entry-card').dataset.id);
-                    toast('Deleted'); loadArtMeasurements();
+                    toast('Deleted');
+                    loadArtMeasurements();
                 } catch (err) { toast(err.message, 'error'); }
             };
         });
-
-    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+        const savedDraft = getRouteFormDraft();
+        if (savedDraft?.meta?.kind === 'art-measurement') {
+            showArtMeasurementForm(savedDraft.meta.editId ?? null);
+        }
+    } catch (e) {
+        container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`;
+    }
 }
 
 // ============================================================
 // HOME: ART MEASUREMENT FORM
 // ============================================================
+
 async function showArtMeasurementForm(editId) {
     const slot = $('#form-slot');
+    const draftMeta = { kind:'art-measurement', editId: editId ?? null };
     slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
 
     let existing = null;
     if (editId) {
-        try { existing = await fetchRow('art_measurements', editId); } catch (e) {
-            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        try {
+            existing = await fetchRow('art_measurements', editId);
+        } catch (e) {
+            toast(e.message, 'error');
+            slot.innerHTML = '';
+            return;
         }
     }
 
     const areaOpts = await loadFkOptions('home_areas', 'name', null);
-
     const title = editId ? 'Edit Art Measurement' : 'New Art Measurement';
     let html = `<div class="form-panel"><h3>${title}</h3>`;
 
@@ -1686,9 +1965,10 @@ async function showArtMeasurementForm(editId) {
     </div></div>`;
 
     slot.innerHTML = html;
+    bindFormDraft(draftMeta);
     slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-cancel').onclick = () => { clearFormDraft(draftMeta); slot.innerHTML = ''; };
     $('#form-save').onclick = async () => {
         const row = {};
         for (const f of ART_MEASUREMENT_FIELDS) {
@@ -1701,7 +1981,10 @@ async function showArtMeasurementForm(editId) {
         try {
             if (editId) { await updateRow('art_measurements', editId, row); toast('Updated'); }
             else { await insertRow('art_measurements', row); toast('Created'); }
-            clearFkCache(); slot.innerHTML = ''; loadArtMeasurements();
+            clearFormDraft(draftMeta);
+            clearFkCache();
+            slot.innerHTML = '';
+            loadArtMeasurements();
         } catch (e) { toast(e.message, 'error'); }
     };
 }
@@ -1709,6 +1992,7 @@ async function showArtMeasurementForm(editId) {
 // ============================================================
 // RENDER: ENTERTAINMENT HUB
 // ============================================================
+
 function renderEntertainmentHub() {
     app().innerHTML = topbar()
         + breadcrumb([{label:'Home',href:'#'},{label:'Entertainment'}])
@@ -1727,6 +2011,7 @@ function renderEntertainmentHub() {
 // ============================================================
 // RENDER: PLACES WORKSPACE
 // ============================================================
+
 function renderPlacesWorkspace() {
     const tabs = [
         { key:'local', icon:'🏠', label:'Local' },
@@ -1734,11 +2019,20 @@ function renderPlacesWorkspace() {
         { key:'regions', icon:'🗺️', label:'Regions' },
         { key:'areas', icon:'📍', label:'Areas' },
     ];
+    const savedDraft = getRouteFormDraft();
+    let initialTab = 'local';
+    if (savedDraft?.meta?.kind === 'place') {
+        initialTab = savedDraft.meta.regionType === 'Vacation' ? 'vacation' : 'local';
+    } else if (savedDraft?.meta?.kind === 'generic' && savedDraft.meta.tableName === 'ent_regions') {
+        initialTab = 'regions';
+    } else if (savedDraft?.meta?.kind === 'generic' && savedDraft.meta.tableName === 'ent_neighborhoods') {
+        initialTab = 'areas';
+    }
 
     app().innerHTML = topbar()
         + breadcrumb([{label:'Home',href:'#'},{label:'Entertainment',href:'#entertainment'},{label:'Places'}])
-        + `<div class="tab-bar" id="ent-tabs">${tabs.map((t, i) =>
-            `<button class="tab${i===0?' active':''}" data-tab="${t.key}">${t.icon} ${t.label}</button>`
+        + `<div class="tab-bar" id="ent-tabs">${tabs.map(t =>
+            `<button class="tab${t.key===initialTab?' active':''}" data-tab="${t.key}">${t.icon} ${t.label}</button>`
         ).join('')}</div>
         <div id="table-content" class="page">
             <div class="loading-screen" style="height:auto;min-height:200px;"><div class="loading-spinner"></div></div>
@@ -1762,6 +2056,7 @@ function renderPlacesWorkspace() {
 // ============================================================
 // ENTERTAINMENT: PLACES LIST (filtered by region type)
 // ============================================================
+
 async function loadPlacesList(regionType) {
     const container = $('#table-content');
     container.innerHTML = `<div class="loading-screen" style="height:auto;min-height:150px;"><div class="loading-spinner"></div></div>`;
@@ -1781,6 +2076,7 @@ async function loadPlacesList(regionType) {
             if (nErr) throw nErr;
             neighborhoods = nbData || [];
         }
+
         const neighborhoodIds = neighborhoods.map(n => n.id);
         const neighborhoodMap = {};
         neighborhoods.forEach(n => { neighborhoodMap[n.id] = n.name; });
@@ -1829,6 +2125,7 @@ async function loadPlacesList(regionType) {
                     p.drink_cost ? 'Drinks: ' + esc(p.drink_cost) : null,
                     p.happy_hour ? 'HH: ' + esc(p.happy_hour) : null,
                 ].filter(Boolean).join(' · ');
+
                 const statusClass = p.status === 'Favorite' ? 'status-complete'
                     : p.status === 'Been There' || p.status === 'Regular' ? 'status-active'
                     : p.status === 'Might be Closed' ? 'status-scheduled'
@@ -1858,7 +2155,6 @@ async function loadPlacesList(regionType) {
 
         container.innerHTML = html;
 
-        // Filters
         const applyFilters = () => {
             const av = $('#filter-place-area')?.value || '';
             const tv = $('#filter-place-type')?.value || '';
@@ -1870,16 +2166,15 @@ async function loadPlacesList(regionType) {
                 card.style.display = ok ? '' : 'none';
             });
         };
+
         ['#filter-place-area','#filter-place-type','#filter-place-status'].forEach(s => {
             if ($(s)) $(s).onchange = applyFilters;
         });
 
-        // Add button
         if ($('#add-place-btn')) {
             $('#add-place-btn').onclick = () => showPlaceForm(regionType, null);
         }
 
-        // Edit buttons
         container.querySelectorAll('.edit-btn').forEach(btn => {
             btn.onclick = (e) => {
                 e.stopPropagation();
@@ -1887,7 +2182,6 @@ async function loadPlacesList(regionType) {
             };
         });
 
-        // Delete buttons
         container.querySelectorAll('.del-btn').forEach(btn => {
             btn.onclick = async (e) => {
                 e.stopPropagation();
@@ -1895,25 +2189,37 @@ async function loadPlacesList(regionType) {
                 if (!yes) return;
                 try {
                     await deleteRow('ent_places', btn.closest('.entry-card').dataset.id);
-                    toast('Deleted'); loadPlacesList(regionType);
+                    toast('Deleted');
+                    loadPlacesList(regionType);
                 } catch (err) { toast(err.message, 'error'); }
             };
         });
-
-    } catch (e) { container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; }
+        const savedDraft = getRouteFormDraft();
+        if (savedDraft?.meta?.kind === 'place' && savedDraft.meta.regionType === regionType) {
+            showPlaceForm(regionType, savedDraft.meta.editId ?? null);
+        }
+    } catch (e) {
+        container.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`;
+    }
 }
 
 // ============================================================
 // ENTERTAINMENT: PLACE FORM (Add / Edit)
 // ============================================================
+
 async function showPlaceForm(regionType, editId) {
     const slot = $('#form-slot');
+    const draftMeta = { kind:'place', regionType, editId: editId ?? null };
     slot.innerHTML = `<div class="form-panel"><div class="loading-screen" style="height:auto;min-height:80px;"><div class="loading-spinner"></div></div></div>`;
 
     let existing = null;
     if (editId) {
-        try { existing = await fetchRow('ent_places', editId); } catch (e) {
-            toast(e.message, 'error'); slot.innerHTML = ''; return;
+        try {
+            existing = await fetchRow('ent_places', editId);
+        } catch (e) {
+            toast(e.message, 'error');
+            slot.innerHTML = '';
+            return;
         }
     }
 
@@ -1921,7 +2227,6 @@ async function showPlaceForm(regionType, editId) {
     const { data: regions } = await sb.from('ent_regions')
         .select('id').eq('type', regionType);
     const regionIds = (regions || []).map(r => r.id);
-
     let areaOpts = [];
     if (regionIds.length > 0) {
         const { data: nbData } = await sb.from('ent_neighborhoods')
@@ -1956,9 +2261,10 @@ async function showPlaceForm(regionType, editId) {
     </div></div>`;
 
     slot.innerHTML = html;
+    bindFormDraft(draftMeta);
     slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    $('#form-cancel').onclick = () => { slot.innerHTML = ''; };
+    $('#form-cancel').onclick = () => { clearFormDraft(draftMeta); slot.innerHTML = ''; };
     $('#form-save').onclick = async () => {
         const row = {};
         for (const f of ENT_PLACE_FIELDS) {
@@ -1971,7 +2277,10 @@ async function showPlaceForm(regionType, editId) {
         try {
             if (editId) { await updateRow('ent_places', editId, row); toast('Updated'); }
             else { await insertRow('ent_places', row); toast('Created'); }
-            clearFkCache(); slot.innerHTML = ''; loadPlacesList(regionType);
+            clearFormDraft(draftMeta);
+            clearFkCache();
+            slot.innerHTML = '';
+            loadPlacesList(regionType);
         } catch (e) { toast(e.message, 'error'); }
     };
 }
@@ -1979,4 +2288,5 @@ async function showPlaceForm(regionType, editId) {
 // ============================================================
 // INIT
 // ============================================================
+
 init();
