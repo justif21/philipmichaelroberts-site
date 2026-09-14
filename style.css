@@ -296,7 +296,6 @@ a:hover { color: var(--accent-hover); }
     from { transform: translateY(10px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
-
 /* --- Confirm Dialog --- */
 .dialog-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
@@ -335,6 +334,17 @@ a:hover { color: var(--accent-hover); }
 .status-active { background: rgba(107,143,181,0.2); color: var(--accent-hover); }
 .status-hold { background: rgba(196,163,93,0.2); color: var(--warning); }
 .status-complete { background: rgba(90,158,122,0.15); color: var(--success); }
+
+/* --- Restaurant / Place Status Badges --- */
+.place-status-default { background: #9ca3af; color: #111827; }
+.place-status-want-to-try { background: #38bdf8; color: #082f49; }
+.place-status-never-been { background: #67e8f9; color: #083344; }
+.place-status-not-interested { background: #f87171; color: #450a0a; }
+.place-status-was-ok { background: #facc15; color: #422006; }
+.place-status-would-go-back { background: #4ade80; color: #052e16; }
+.place-status-favorite { background: #f472b6; color: #500724; }
+.place-status-might-be-closed { background: #fb923c; color: #431407; }
+.place-status-closed { background: #ef4444; color: #ffffff; }
 
 /* --- Sub-sections (Steps / Notes) --- */
 .sub-section {
