@@ -21,7 +21,7 @@ const app = () => document.getElementById('app');
 
 const NOVEL_TABLES = {
     novel_characters: {
-        label: 'Characters', icon: '👤',
+        label: 'Characters', singularLabel: 'Character', icon: '👤',
         display: ['name','main_side','status'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -43,7 +43,7 @@ const NOVEL_TABLES = {
         ]
     },
     novel_races: {
-        label: 'Races', icon: '🧬',
+        label: 'Races', singularLabel: 'Race', icon: '🧬',
         display: ['name'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -51,7 +51,7 @@ const NOVEL_TABLES = {
         ]
     },
     novel_cultural_factions: {
-        label: 'Factions', icon: '⚔️',
+        label: 'Factions', singularLabel: 'Faction', icon: '⚔️',
         display: ['name','type'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -65,7 +65,7 @@ const NOVEL_TABLES = {
         ]
     },
     novel_world_details: {
-        label: 'World Details', icon: '🌍',
+        label: 'World Details', singularLabel: 'World Detail', icon: '🌍',
         display: ['name','type'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -80,7 +80,7 @@ const NOVEL_TABLES = {
         ]
     },
     novel_magic_systems: {
-        label: 'Magic Systems', icon: '✨',
+        label: 'Magic Systems', singularLabel: 'Magic System', icon: '✨',
         display: ['name'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -99,7 +99,7 @@ const NOVEL_TABLES = {
         ]
     },
     novel_abilities: {
-        label: 'Abilities', icon: '⚡',
+        label: 'Abilities', singularLabel: 'Ability', icon: '⚡',
         display: ['name','category','rarity'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -118,7 +118,7 @@ const NOVEL_TABLES = {
         ]
     },
     novel_naming_conventions: {
-        label: 'Naming Conventions', icon: '📝',
+        label: 'Naming Conventions', singularLabel: 'Naming Convention', icon: '📝',
         display: ['culture_region'],
         fields: [
             { key:'culture_region', label:'Culture / Region', type:'text' },
@@ -129,7 +129,7 @@ const NOVEL_TABLES = {
         ]
     },
     novel_chapters: {
-        label: 'Chapters', icon: '📖',
+        label: 'Chapters', singularLabel: 'Chapter', icon: '📖',
         display: ['chapter_number','title','status'],
         fields: [
             { key:'chapter_number', label:'Chapter Number', type:'number' },
@@ -149,7 +149,7 @@ const NOVEL_TABLES = {
         ]
     },
     novel_plot_threads: {
-        label: 'Plot Threads', icon: '🧵',
+        label: 'Plot Threads', singularLabel: 'Plot Thread', icon: '🧵',
         display: ['name','type','status'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -166,7 +166,7 @@ const NOVEL_TABLES = {
 
 const SS_TABLES = {
     ss_characters: {
-        label: 'Characters', icon: '👤',
+        label: 'Characters', singularLabel: 'Character', icon: '👤',
         display: ['name','default_role'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -183,7 +183,7 @@ const SS_TABLES = {
         ]
     },
     ss_categories: {
-        label: 'Categories', icon: '📂',
+        label: 'Categories', singularLabel: 'Category', icon: '📂',
         display: ['name','continuity_type'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -201,7 +201,7 @@ const SS_TABLES = {
         ]
     },
     ss_themes_rules: {
-        label: 'Themes & Rules', icon: '📐',
+        label: 'Themes & Rules', singularLabel: 'Theme / Rule', icon: '📐',
         display: ['name','type'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -213,7 +213,7 @@ const SS_TABLES = {
         ]
     },
     ss_stories: {
-        label: 'Stories', icon: '📄',
+        label: 'Stories', singularLabel: 'Story', icon: '📄',
         display: ['name', {key:'char_type', label:'Character'}, {key:'loc_type', label:'Location'}],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -239,7 +239,7 @@ const SS_TABLES = {
 
 const HOME_SIMPLE_TABLES = {
     home_areas: {
-        label: 'Areas', icon: '📍',
+        label: 'Areas', singularLabel: 'Area', icon: '📍',
         display: ['name'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -284,7 +284,7 @@ const ART_MEASUREMENT_FIELDS = [
 
 const ENT_SIMPLE_TABLES = {
     ent_regions: {
-        label: 'Regions', icon: '🗺️',
+        label: 'Regions', singularLabel: 'Region', icon: '🗺️',
         display: ['name','type'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -293,7 +293,7 @@ const ENT_SIMPLE_TABLES = {
         ]
     },
     ent_neighborhoods: {
-        label: 'Areas', icon: '📍',
+        label: 'Areas', singularLabel: 'Area', icon: '📍',
         display: ['name'],
         fields: [
             { key:'name', label:'Name', type:'text', required:true },
@@ -306,13 +306,14 @@ const ENT_PLACE_FIELDS = [
     { key:'name', label:'Name', type:'text', required:true },
     { key:'neighborhood_id', label:'Area', type:'fk', fkTable:'ent_neighborhoods', fkLabel:'name' },
     { key:'address', label:'Address', type:'text' },
-    { key:'type', label:'Type', type:'select', options:['Restaurant','Bar','Cocktail Bar','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Live Music Venue','Breakfast'] },
+    { key:'type', label:'Type', type:'select', options:['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Live Music Venue','Breakfast'] },
     { key:'food_cost', label:'Food Cost', type:'text' },
     { key:'drink_cost', label:'Drink Cost', type:'text' },
+    { key:'ice_type', label:'Type of Ice', type:'select', options:['Small','Moderate Sized','Single Large'] },
     { key:'happy_hour', label:'Happy Hour', type:'text' },
     { key:'gluten_free', label:'Gluten Free', type:'text' },
     { key:'rating', label:'Rating', type:'text' },
-    { key:'status', label:'Status', type:'select', options:['Want to Try','Little Interest','Not Interested','Been There','Regular','Favorite','Might be Closed','Closed'] },
+    { key:'status', label:'Status', type:'select', options:['Want to Try','Never Been','Not Interested','Been There: Was OK','Been There: Would Go Back','Favorite','Might be Closed','Closed'] },
     { key:'url', label:'Website', type:'text' },
     { key:'notes', label:'Notes', type:'textarea' },
 ];
@@ -933,7 +934,7 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
 
         let html = `<div class="page-header">
             <h2>${config.icon} ${config.label}</h2>
-            <button class="btn btn-primary btn-sm" id="add-entry-btn">+ Add ${config.label.replace(/s$/, '')}</button>
+            <button class="btn btn-primary btn-sm" id="add-entry-btn">+ Add ${config.singularLabel || config.label}</button>
         </div>
         <div id="form-slot"></div>`;
 
@@ -1056,7 +1057,7 @@ async function showForm(seriesId, tableName, tableConfigs, isNovel, editId) {
         }
     }
 
-    const title = editId ? `Edit ${config.label.replace(/s$/, '')}` : `New ${config.label.replace(/s$/, '')}`;
+    const title = editId ? `Edit ${config.singularLabel || config.label}` : `New ${config.singularLabel || config.label}`;
     let html = `<div class="form-panel"><h3>${title}</h3>`;
 
     for (const f of config.fields) {
@@ -1230,6 +1231,20 @@ function getStatusClass(status) {
         case 'Researching': return 'status-planning';
         case 'On Hold': return 'status-hold';
         default: return 'status-default';
+    }
+}
+
+function getPlaceStatusClass(status) {
+    switch (status) {
+        case 'Want to Try': return 'place-status-want-to-try';
+        case 'Never Been': return 'place-status-never-been';
+        case 'Not Interested': return 'place-status-not-interested';
+        case 'Been There: Was OK': return 'place-status-was-ok';
+        case 'Been There: Would Go Back': return 'place-status-would-go-back';
+        case 'Favorite': return 'place-status-favorite';
+        case 'Might be Closed': return 'place-status-might-be-closed';
+        case 'Closed': return 'place-status-closed';
+        default: return 'place-status-default';
     }
 }
 
@@ -2126,12 +2141,7 @@ async function loadPlacesList(regionType) {
                     p.happy_hour ? 'HH: ' + esc(p.happy_hour) : null,
                 ].filter(Boolean).join(' · ');
 
-                const statusClass = p.status === 'Favorite' ? 'status-complete'
-                    : p.status === 'Been There' || p.status === 'Regular' ? 'status-active'
-                    : p.status === 'Might be Closed' ? 'status-scheduled'
-                    : p.status === 'Closed' || p.status === 'Not Interested' ? 'status-hold'
-                    : p.status === 'Little Interest' ? 'status-default'
-                    : 'status-default';
+                const statusClass = getPlaceStatusClass(p.status);
 
                 html += `<div class="entry-card" data-id="${p.id}" data-area="${p.neighborhood_id||''}" data-type="${esc(p.type||'')}" data-status="${esc(p.status||'')}">
                     <div>
