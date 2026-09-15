@@ -178,6 +178,7 @@ const SS_TABLES = {
             { key:'aliases', label:'Aliases', type:'text' },
             { key:'traits', label:'Traits', type:'text' },
             { key:'default_role', label:'Default Role', type:'text' },
+            { key:'category_id', label:'Category', type:'fk', fkTable:'ss_categories', fkLabel:'name' },
             { key:'voice_mannerisms', label:'Voice & Mannerisms', type:'textarea' },
             { key:'notes', label:'Notes', type:'textarea' },
         ]
@@ -893,6 +894,25 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
     try {
         const rows = await fetchRows(tableName, isNovel ? seriesId : null);
 
+        // For the short-story Characters list, resolve the character's primary
+        // category so the category name can be shown instead of its raw ID.
+        const characterCategoryMap = {};
+        if (tableName === 'ss_characters' && rows.length > 0) {
+            const categoryIds = [...new Set(rows.map(row => row.category_id).filter(Boolean))];
+
+            if (categoryIds.length > 0) {
+                const { data: categories, error: categoryError } = await sb
+                    .from('ss_categories')
+                    .select('id, name')
+                    .in('id', categoryIds);
+                if (categoryError) throw categoryError;
+
+                (categories || []).forEach(category => {
+                    characterCategoryMap[category.id] = category.name || '(untitled)';
+                });
+            }
+        }
+
         // For the short-story Stories list, load all assigned cast members in
         // bulk so their names can be shown at a glance without opening each story.
         const storyCastMap = {};
@@ -946,9 +966,16 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
         } else {
             html += `<div class="entry-list">`;
             for (const row of rows) {
-                // Build display: first item is the name, rest go to meta line
-                const firstKey = typeof config.display[0] === 'string' ? config.display[0] : config.display[0].key;
+                // Build display: first item is the name, rest go to meta line.
+                // Short-story Characters get highlighted Role/Category tags
+                // rather than the normal plain metadata line.
+                const firstKey = typeof config.display[0] === 'string'
+                    ? config.display[0]
+                    : config.display[0].key;
+
                 const nameVal = esc(row[firstKey]) || '(untitled)';
+                const isShortStoryCharacter = tableName === 'ss_characters';
+
                 const metaParts = config.display.slice(1)
                     .map(d => {
                         if (typeof d === 'string') {
@@ -958,14 +985,29 @@ async function loadTableList(seriesId, tableName, tableConfigs, isNovel) {
                         return row[d.key] ? `${esc(d.label)}: ${esc(row[d.key])}` : null;
                     })
                     .filter(Boolean);
-                const meta = metaParts.join(' · ');
+
+                const meta = isShortStoryCharacter ? '' : metaParts.join(' · ');
+                const characterRole = isShortStoryCharacter ? row.default_role : null;
+                const characterCategory = isShortStoryCharacter && row.category_id
+                    ? characterCategoryMap[row.category_id]
+                    : null;
                 const castNames = tableName === 'ss_stories' ? (storyCastMap[row.id] || []) : null;
 
                 html += `<div class="entry-card" data-id="${row.id}">
                     <div>
                         <div class="entry-name">${nameVal}</div>
                         ${meta ? `<div class="entry-meta">${meta}</div>` : ''}
-                        ${castNames ? `<div class="entry-meta">Cast: ${castNames.length ? castNames.map(name => esc(name)).join(', ') : '—'}</div>` : ''}
+                        ${isShortStoryCharacter && (characterRole || characterCategory) ? `
+                            <div class="entry-meta ss-character-tags">
+                                ${characterRole ? `<span class="ss-meta-tag">Role: ${esc(characterRole)}</span>` : ''}
+                                ${characterCategory ? `<span class="ss-meta-tag">Category: ${esc(characterCategory)}</span>` : ''}
+                            </div>` : ''}
+                        ${castNames ? `
+                            <div class="entry-meta">
+                                ${castNames.length
+                                    ? `<span class="ss-cast-tag">Cast: ${castNames.map(name => esc(name)).join(', ')}</span>`
+                                    : 'Cast: —'}
+                            </div>` : ''}
                     </div>
                     <div class="entry-actions">
                         <button class="btn btn-secondary btn-sm edit-btn">Edit</button>
