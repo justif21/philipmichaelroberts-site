@@ -223,6 +223,40 @@ a:hover { color: var(--accent-hover); }
     display: flex; gap: 0.4rem; flex-shrink: 0;
 }
 
+/* --- Short Story Character / Cast Highlights --- */
+.ss-character-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.ss-meta-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    background: var(--accent-muted);
+    color: var(--accent-hover);
+    border: 1px solid rgba(107,143,181,0.28);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.35;
+}
+
+.ss-cast-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(90,158,122,0.15);
+    color: var(--success);
+    border: 1px solid rgba(90,158,122,0.28);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.35;
+}
+
 /* --- Series Selector --- */
 .series-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .series-card {
@@ -459,3 +493,5 @@ a:hover { color: var(--accent-hover); }
     .step-add-form input[type="text"] { width: 100%; min-width: 0; }
     .note-add-form { flex-direction: column; }
 }
+
+
