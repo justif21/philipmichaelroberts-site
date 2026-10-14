@@ -494,4 +494,364 @@ a:hover { color: var(--accent-hover); }
     .note-add-form { flex-direction: column; }
 }
 
+/* ============================================================================
+   PHILIPMICHAELROBERTS-SITE — VACATION & PLACES EXPANSION
+   GitHub Script 4 / P6 — Additional website styling
+   Version 1.0 — 2026-10-14
+
+   INSTALLATION:
+   1. Edit the EXISTING style.css in the repository root.
+   2. Append this entire block at the END of style.css (after existing rules).
+      Do not delete or replace the original stylesheet.
+   3. Commit style.css.
+   4. IMPORTANT: In index.html, change style.css?v=5 to style.css?v=6,
+      then commit index.html. Do not change either JavaScript script tag.
+
+   Designed for existing website styling variables and the new app.js forms.
+   All rules below are scoped to the vacation/places interface where possible.
+   Does not affect Supabase data, auth or other website modules.
+   ============================================================================ */
+
+/* Destination directory: flexible filters, easier to scan on tablets. */
+#ent-place-results {
+    margin-top: 0.95rem;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+#ent-place-results .entry-card,
+#ent-detail-content .entry-card {
+    align-items: flex-start;
+    min-width: 0;
+}
+
+#ent-place-results .entry-card > div:first-child,
+#ent-detail-content .entry-card > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+}
+
+#ent-place-results .entry-name,
+#ent-detail-content .entry-name {
+    font-size: 1rem;
+    line-height: 1.35;
+    margin-bottom: 0.25rem;
+}
+
+#ent-place-results .entry-meta,
+#ent-detail-content .entry-meta {
+    display: block;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    margin-top: 0.25rem;
+}
+
+#ent-place-results .entry-actions,
+#ent-detail-content .entry-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-self: flex-start;
+}
+
+/* In the new All Places/Local Places view, five filters are available.
+   Keep the selectors touch-friendly without changing other modules. */
+.page:has(#ent-place-results) .home-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.65rem;
+    align-items: center;
+    margin-top: 0.95rem;
+}
+
+.page:has(#ent-place-results) .home-filters select {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    min-height: 39px;
+    padding: 0.5rem 0.65rem;
+    border-radius: var(--radius-sm);
+}
+
+/* Region/Area/Vacation/Event list and form spacing. */
+.page:has(#ent-new) > .entry-list {
+    margin-top: 1rem;
+}
+
+.page:has(#ent-new) .entry-card {
+    align-items: flex-start;
+}
+
+.page:has(#ent-new) .entry-card > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+}
+
+.page:has(#ent-new) .entry-meta {
+    display: block;
+    line-height: 1.55;
+    margin-top: 0.25rem;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.page:has(#ent-new) .entry-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+/* Lists: compact action row above filters and entries. */
+.page:has(#ent-place-results) > .form-actions,
+.page:has(#ent-new) > .form-actions,
+.page:has(#ent-detail-content) > .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem;
+    margin-top: 0.4rem;
+    margin-bottom: 1rem;
+    padding: 0 0 0.9rem;
+    border-top: 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+/* Vacation detail: emphasize the trip summary, then navigation and sections. */
+.page:has(#ent-detail-content) > .entry-card {
+    cursor: default;
+    border-left: 3px solid var(--accent);
+    background: var(--bg-surface);
+    margin: 0.8rem 0;
+}
+
+.page:has(#ent-detail-content) > .entry-card:hover {
+    transform: none;
+    border-color: var(--border);
+    border-left-color: var(--accent);
+    background: var(--bg-surface);
+}
+
+.page:has(#ent-detail-content) > .entry-card .entry-name {
+    font-size: 1.08rem;
+    font-weight: 650;
+}
+
+.page:has(#ent-detail-content) > .entry-card .entry-meta {
+    display: block;
+    margin-top: 0.3rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+/* Vacation section navigation is built with .form-actions buttons. */
+.page:has(#ent-detail-content) > .entry-card + .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.9rem 0 1.25rem;
+    padding: 0 0 0.95rem;
+    border-top: 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.page:has(#ent-detail-content) > .entry-card + .form-actions .btn {
+    min-height: 35px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+}
+
+#ent-detail-content {
+    min-width: 0;
+    padding-bottom: 1.5rem;
+}
+
+#ent-detail-content > .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0 0 1rem;
+    padding: 0;
+    border: 0;
+}
+
+#ent-detail-content > .entry-list {
+    margin-top: 0.8rem;
+    gap: 0.75rem;
+}
+
+#ent-detail-content > h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.35;
+    margin: 1.4rem 0 0.75rem;
+}
+
+/* The activity Visit controls sit within a destination card. */
+#ent-detail-content .entry-card .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 0.55rem;
+    border: 0;
+    padding: 0.6rem 0 0;
+    margin: 0.6rem 0 0;
+}
+
+#ent-detail-content .entry-card .form-actions label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+#ent-detail-content .entry-card input[type="date"] {
+    min-height: 35px;
+    width: auto;
+    min-width: 140px;
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    color-scheme: dark;
+    padding: 0.35rem 0.6rem;
+    font: inherit;
+    font-size: 0.82rem;
+}
+
+#ent-detail-content .entry-card input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    accent-color: var(--accent);
+}
+
+#ent-detail-content .entry-card:has(input[type="checkbox"]:checked) {
+    border-left: 3px solid var(--success);
+}
+
+#ent-detail-content .status-badge,
+#ent-place-results .status-badge {
+    margin-right: 0.35rem;
+    vertical-align: middle;
+}
+
+/* New destination forms inherit .form-panel/.form-group. */
+.page:has([id^="ent-f-"]) #form-slot {
+    margin-top: 1.15rem;
+}
+
+.page:has([id^="ent-f-"]) #form-slot .form-panel {
+    max-width: 920px;
+    padding: clamp(1rem, 2.6vw, 1.5rem);
+    box-shadow: var(--shadow);
+}
+
+.page:has([id^="ent-f-"]) #form-slot .form-group label {
+    line-height: 1.4;
+}
+
+.page:has([id^="ent-f-"]) #form-slot input[type="date"],
+.page:has([id^="ent-f-"]) #form-slot input[type="datetime-local"] {
+    color-scheme: dark;
+    min-height: 40px;
+}
+
+.page:has([id^="ent-f-"]) #form-slot input[type="checkbox"] {
+    width: auto;
+    min-width: 18px;
+    min-height: 18px;
+    accent-color: var(--accent);
+}
+
+.page:has([id^="ent-f-"]) #form-slot .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+
+/* Long URLs, reservation notes, and location text should not break cards. */
+#ent-detail-content a,
+#ent-place-results a,
+.page:has(#ent-new) .entry-list a {
+    overflow-wrap: anywhere;
+}
+
+/* Keyboard navigation and touch affordances on vacation controls. */
+#ent-detail-content .btn:focus-visible,
+#ent-place-results .btn:focus-visible,
+.page:has(#ent-new) .btn:focus-visible,
+.page:has(#ent-place-results) .home-filters select:focus-visible,
+.page:has([id^="ent-f-"]) #form-slot :is(input, select, textarea, button):focus-visible {
+    outline: 2px solid var(--accent-hover);
+    outline-offset: 2px;
+}
+
+/* Tablet: action buttons wrap beneath longer destination names. */
+@media (max-width: 800px) {
+    #ent-place-results .entry-card,
+    #ent-detail-content .entry-card,
+    .page:has(#ent-new) .entry-card {
+        flex-wrap: wrap;
+        row-gap: 0.75rem;
+    }
+
+    #ent-place-results .entry-actions,
+    #ent-detail-content .entry-actions,
+    .page:has(#ent-new) .entry-actions {
+        flex: 1 1 100%;
+        justify-content: flex-start;
+    }
+
+    #ent-detail-content .entry-card input[type="date"] {
+        min-height: 40px;
+    }
+}
+
+/* Small mobile screens: full-width filters and easy touch targets. */
+@media (max-width: 600px) {
+    .page:has(#ent-place-results) .home-filters {
+        grid-template-columns: 1fr;
+    }
+
+    .page:has(#ent-place-results) > .form-actions,
+    .page:has(#ent-new) > .form-actions,
+    .page:has(#ent-detail-content) > .form-actions {
+        gap: 0.4rem;
+    }
+
+    .page:has(#ent-detail-content) > .entry-card + .form-actions .btn {
+        flex: 1 1 auto;
+        min-height: 40px;
+    }
+
+    #ent-place-results .entry-actions .btn,
+    #ent-detail-content .entry-actions .btn,
+    .page:has(#ent-new) .entry-actions .btn {
+        min-height: 40px;
+    }
+
+    #ent-detail-content .entry-card .form-actions {
+        align-items: flex-start;
+    }
+
+    #ent-detail-content .entry-card input[type="date"] {
+        width: 100%;
+    }
+
+    .page:has([id^="ent-f-"]) #form-slot .form-panel {
+        padding: 1rem;
+    }
+}
+
+/* END OF VACATION & PLACES EXPANSION CSS. */
+
+
 
