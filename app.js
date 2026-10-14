@@ -2337,6 +2337,772 @@ async function showPlaceForm(regionType, editId) {
     };
 }
 
+/* ============================================================================
+   Vacation & Places Expansion — GitHub Script 2 (app.js integration)
+   Version: 1.0 | 2026-10-14
+
+   INSTALL INSTRUCTIONS (IMPORTANT):
+   In the EXISTING GitHub app.js file, find the final standalone line:
+       init();
+   Paste this entire JavaScript block DIRECTLY ABOVE that line.
+   Retain the original init(); line. Do not erase earlier app.js code.
+
+   REQUIRES: ent-vacations-data.js to load BEFORE app.js in index.html.
+   Until index.html is updated in the next step, the new Entertainment screens
+   will show an installation reminder rather than using the new database layer.
+   This script does not modify Writing, Home, or other existing website modules.
+   ============================================================================ */
+
+const entUi = {
+    api: null,
+    placeMode: 'local',
+    placeRegion: '',
+    placeArea: '',
+    placeCategory: '',
+    placeType: '',
+    placeStatus: ''
+};
+
+function entApi() {
+    if (!window.EntVacationData) {
+        throw new Error('The vacation data layer has not loaded. The next GitHub step updates index.html to load ent-vacations-data.js before app.js.');
+    }
+    if (!entUi.api) entUi.api = window.EntVacationData.create(sb);
+    return entUi.api;
+}
+function entError(err) {
+    const message = err && err.message ? err.message : String(err);
+    toast(message, 'error');
+    return `<div class="empty-state"><p>${esc(message)}</p></div>`;
+}
+function entPage(title, subtitle, body) {
+    app().innerHTML = topbar() + breadcrumb([
+        { label:'Home', href:'#' },
+        { label:'Entertainment', href:'#entertainment' },
+        { label:title }
+    ]) + `<div class="page"><div class="page-header"><h2>${esc(title)}</h2></div>
+    ${subtitle ? `<p class="entry-meta">${esc(subtitle)}</p>` : ''}${body}</div>`;
+}
+function entLoading(title) {
+    entPage(title, '', `<div class="loading-screen" style="height:auto;min-height:120px;"><div class="loading-spinner"></div></div>`);
+}
+function entButton(label, extra = '') {
+    return `<button type="button" class="btn btn-secondary btn-sm" ${extra}>${esc(label)}</button>`;
+}
+function entOptions(rows, selected, emptyLabel) {
+    return `<option value="">${esc(emptyLabel || '— None —')}</option>` + rows.map(x =>
+        `<option value="${esc(x.value)}"${String(x.value)===String(selected??'')?' selected':''}>${esc(x.label)}</option>`
+    ).join('');
+}
+function entInput(def, value, choices) {
+    const id = 'ent-f-' + def.key;
+    const safeValue = value == null ? '' : String(value);
+    const required = def.required ? ' required' : '';
+    let control;
+    if (def.type === 'select') {
+        control = `<select id="${id}"${required}>${entOptions(choices || def.options || [],safeValue,def.placeholder||'— Select —')}</select>`;
+    } else if (def.type === 'textarea') {
+        control = `<textarea id="${id}"${required}>${esc(safeValue)}</textarea>`;
+    } else if (def.type === 'checkbox') {
+        control = `<input type="checkbox" id="${id}"${value===true?' checked':''}>`;
+    } else {
+        const type = def.type || 'text';
+        const list = def.list ? ` list="ent-list-${def.key}"` : '';
+        const dataList = def.list ? `<datalist id="ent-list-${def.key}">${def.list.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist>` : '';
+        control = `<input type="${esc(type)}" id="${id}" value="${esc(safeValue)}"${list}${required} placeholder="${esc(def.placeholder||'')}">${dataList}`;
+    }
+    return `<div class="form-group"${def.foodOnly?' data-ent-food="1"':''}>
+        <label for="${id}">${esc(def.label)}${def.required?' *':''}</label>${control}</div>`;
+}
+function entRead(fields) {
+    const result = {};
+    for (const field of fields) {
+        const el = document.getElementById('ent-f-' + field.key);
+        if (!el) continue;
+        result[field.key] = field.type === 'checkbox' ? el.checked : (el.value.trim() || null);
+        if (field.required && !result[field.key]) throw new Error(field.label + ' is required.');
+    }
+    return result;
+}
+async function entForm({ table, seriesId = null, id = null, row = {}, fields, save, afterSave, choices = {}, heading = '', decorate = null }) {
+    const slot = $('#form-slot');
+    if (!slot) return;
+    const meta = { kind:'generic', tableName:table, seriesId, editId:id };
+    slot.innerHTML = `<div class="form-panel"><h3>${esc(heading|| (id?'Edit':'Add'))}</h3>
+       ${fields.map(f=>entInput(f,row?.[f.key],choices[f.key])).join('')}
+       <div class="form-actions"><button type="button" class="btn btn-secondary btn-sm" id="ent-cancel">Cancel</button>
+       <button type="button" class="btn btn-primary btn-sm" id="ent-save">${id?'Update':'Create'}</button></div></div>`;
+    if (decorate) await decorate(slot.querySelector('.form-panel'));
+    if (table === 'ent_places') {
+        const cat = $('#ent-f-category');
+        const type = $('#ent-f-type');
+        const foodTypes = new Set(['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Breakfast']);
+        const toggle = () => slot.querySelectorAll('[data-ent-food]').forEach(el => {
+            el.style.display = (cat?.value === 'Food & Drink' || (!cat?.value && foodTypes.has(type?.value))) ? '' : 'none';
+        });
+        cat?.addEventListener('change',toggle); type?.addEventListener('input',toggle);
+        bindFormDraft(meta);
+        toggle();
+    } else {
+        bindFormDraft(meta);
+    }
+    $('#ent-cancel').onclick = () => { clearFormDraft(meta); slot.innerHTML = ''; };
+    $('#ent-save').onclick = async () => {
+        const button = $('#ent-save');
+        button.disabled = true;
+        try {
+            const values = entRead(fields);
+            const result = await save(values);
+            clearFormDraft(meta);
+            toast(id ? 'Updated' : 'Created');
+            await afterSave(result);
+        } catch (err) { toast(err.message, 'error'); button.disabled = false; }
+    };
+    slot.scrollIntoView({ block:'nearest',behavior:'smooth' });
+}
+function entStatus(value) {
+    return value ? `<span class="status-badge">${esc(value)}</span>` : '';
+}
+function entDetailLine(label, value) {
+    return value ? `<span class="entry-meta"><strong>${esc(label)}:</strong> ${esc(value)}</span>` : '';
+}
+function entPickerOptions(rows) { return rows.map(x=>({value:x.id,label:x.name || '(Unnamed)'})); }
+function entDateText(value) { return value ? String(value).slice(0,10) : 'No date'; }
+function entSafeHref(value) {
+    try {
+        const url=new URL(String(value));
+        return ['https:','http:'].includes(url.protocol)?url.href:null;
+    } catch (_) { return null; }
+}
+function entTimeText(iso,zone) {
+    if (!iso) return '';
+    try {
+        return new Intl.DateTimeFormat('en-US', {
+            timeZone: zone || 'UTC', dateStyle:'medium', timeStyle:'short'
+        }).format(new Date(iso)) + (zone ? ' ('+zone+')' : ' (UTC)');
+    } catch (_) { return String(iso); }
+}
+function entTimeInput(iso,zone) {
+    if (!iso) return '';
+    try { return entApi().isoToLocalInput(iso,zone||'UTC'); }
+    catch (_) { return ''; }
+}
+function entZones() {
+    return ['America/Chicago','America/New_York','America/Denver','America/Los_Angeles',
+        'America/Phoenix','America/Anchorage','Pacific/Honolulu','Europe/London',
+        'Europe/Paris','Europe/Rome','Europe/Amsterdam','Europe/Zurich','UTC'];
+}
+const entChoice = (values) => values.map(v=>({ value:v,label:v }));
+
+// The original router already dispatches /entertainment/places to
+// renderPlacesWorkspace() and other /entertainment routes to
+// renderEntertainmentHub(). Replacing those TWO functions is sufficient:
+// there is no need to replace the router or its hashchange listener.
+renderEntertainmentHub = function () {
+    const path = getRoute().path;
+    if (path[1] === 'vacations') {
+        if (path[2]) return entVacationDetail(path[2],path[3]||'overview');
+        return entVacationList();
+    }
+    if (path[1] === 'events') return entEventList();
+    if (path[1] === 'regions') return entRegionList();
+    if (path[1] === 'areas') return entAreaList();
+    entPage('Entertainment','',`<div class="choice-grid">
+        <div class="choice-card" onclick="navigate('#entertainment/places')"><div class="icon">🏠</div><h3>Local Places</h3><p>Kansas City by default</p></div>
+        <div class="choice-card" onclick="navigate('#entertainment/places/all')"><div class="icon">📍</div><h3>All Places</h3><p>All regions and categories</p></div>
+        <div class="choice-card" onclick="navigate('#entertainment/vacations')"><div class="icon">✈️</div><h3>Vacations</h3><p>Trips, bookings, and visit history</p></div>
+        <div class="choice-card" onclick="navigate('#entertainment/events')"><div class="icon">🎭</div><h3>Events</h3><p>Concerts, performances, and festivals</p></div>
+        <div class="choice-card" onclick="navigate('#entertainment/regions')"><div class="icon">🗺️</div><h3>Regions</h3></div>
+        <div class="choice-card" onclick="navigate('#entertainment/areas')"><div class="icon">📌</div><h3>Areas</h3></div>
+    </div>`);
+};
+
+renderPlacesWorkspace = function () { entPlaceList(); };
+
+async function entPlaceList() {
+    const mode = getRoute().path[2] === 'all' ? 'all' : 'local';
+    entLoading(mode === 'local' ? 'Local Places' : 'All Places');
+    try {
+        const api = entApi();
+        const [{regions,areas,places},kc] = await Promise.all([api.directory(),api.findKansasCityRegion()]);
+        if (mode !== entUi.placeMode) {
+            entUi.placeArea=''; entUi.placeCategory='';
+            entUi.placeType=''; entUi.placeStatus='';
+            entUi.placeRegion='';
+        }
+        entUi.placeMode=mode;
+        if (mode === 'local') entUi.placeRegion = kc?.id || '__missing_kc__';
+        else if (entUi.placeRegion === '__missing_kc__') entUi.placeRegion = '';
+        const aMap = new Map(areas.map(a=>[a.id,a]));
+        const rMap = new Map(regions.map(r=>[r.id,r]));
+        const allCategory = api.PLACE_CATEGORY || ['Food & Drink','Lodging','Attractions','Entertainment','Shopping'];
+        const areaChoices = [{value:'',label:'All Areas'},...entPickerOptions(areas)];
+        const types = [...new Set(places.map(p=>p.type).filter(Boolean))].sort();
+        const statuses = [...new Set([...places.map(p=>p.status).filter(Boolean),...['Want to Try','Never Been','Not Interested','Been There: Was OK','Been There: Would Go Back','Favorite','Might be Closed','Closed']])].sort();
+        const safeCat = entUi.placeCategory;
+        const content = `<div class="form-actions">
+            ${entButton('Local Places','id="ent-local"')}${entButton('All Places','id="ent-all"')}
+            <button type="button" class="btn btn-primary btn-sm" id="ent-place-add">+ Add Place</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="ent-region-open">Regions / Areas</button></div>
+            <div class="home-filters" style="margin-top:12px;">
+            <select id="ent-filter-region">${entOptions(entPickerOptions(regions),entUi.placeRegion,'All Regions')}</select>
+            <select id="ent-filter-area">${entOptions(areaChoices.slice(1),entUi.placeArea,'All Areas')}</select>
+            <select id="ent-filter-category">${entOptions(entChoice(allCategory),safeCat,'All Categories')}</select>
+            <select id="ent-filter-type">${entOptions(entChoice(types),entUi.placeType,'All Types')}</select>
+            <select id="ent-filter-status">${entOptions(entChoice(statuses),entUi.placeStatus,'All Statuses')}</select></div>
+            ${mode==='local'&&!kc?'<p class="entry-meta">No Kansas City Region was found by name. Select All Places to browse the directory.</p>':''}
+            <div id="form-slot"></div><div id="ent-place-results" class="entry-list"></div>`;
+        entPage(mode === 'local' ? 'Local Places' : 'All Places','One shared directory; regions are browsing filters only.',content);
+        const dropdowns = ['region','area','category','type','status'];
+        const render = () => {
+            const regionId = mode==='local'&&!kc ? '__missing_kc__' : $('#ent-filter-region').value;
+            const areaId = $('#ent-filter-area').value;
+            const category = $('#ent-filter-category').value;
+            const type = $('#ent-filter-type').value;
+            const status = $('#ent-filter-status').value;
+            const matched = places.filter(p=> {
+                const area = aMap.get(p.neighborhood_id);
+                const region = area ? rMap.get(area.region_id) : null;
+                if (regionId && regionId !== region?.id) return false;
+                if (areaId && areaId !== p.neighborhood_id) return false;
+                if (category && category !== p.category) return false;
+                if (type && type !== p.type) return false;
+                if (status && status !== p.status) return false;
+                return true;
+            });
+            $('#ent-place-results').innerHTML = matched.length ? matched.map(p=> {
+                const area = aMap.get(p.neighborhood_id);
+                const region = area ? rMap.get(area.region_id) : null;
+                return `<div class="entry-card" data-place="${esc(p.id)}"><div>
+                   <div class="entry-name">${esc(p.name)}</div>
+                   <div class="entry-meta">${entStatus(p.status)} ${esc([p.category,p.type,area?.name,region?.name].filter(Boolean).join(' · '))}</div>
+                   ${entDetailLine('Address',p.address)} ${entDetailLine('Description',p.description)}
+                   ${entDetailLine('Notes',p.notes)}
+                   ${entSafeHref(p.url)?`<div class="entry-meta"><a href="${esc(entSafeHref(p.url))}" target="_blank" rel="noopener noreferrer">Website</a></div>`:''}
+                   </div><div class="entry-actions">${entButton('Edit','data-ent-edit="'+esc(p.id)+'"')}
+                   ${entButton('Delete','data-ent-del="'+esc(p.id)+'"')}</div></div>`;
+            }).join('') : '<div class="empty-state"><p>No Places match these filters.</p></div>';
+            $('#ent-place-results').querySelectorAll('[data-ent-edit]').forEach(btn=>btn.onclick=()=>openPlace(btn.dataset.entEdit));
+            $('#ent-place-results').querySelectorAll('[data-ent-del]').forEach(btn=>btn.onclick=async()=>{
+                const record = places.find(p=>p.id===btn.dataset.entDel);
+                if (!await confirmDialog('Delete Place',`Delete ${record?.name||'this Place'}? Any vacation associations and selected lodging references to it will also be deleted.`)) return;
+                try { await api.deletePlace(btn.dataset.entDel); toast('Deleted'); entPlaceList(); } catch(e){ entError(e); }
+            });
+        };
+        for (const key of dropdowns) $('#ent-filter-'+key).onchange = () => {
+            entUi.placeRegion = $('#ent-filter-region').value;
+            entUi.placeArea = $('#ent-filter-area').value;
+            entUi.placeCategory = $('#ent-filter-category').value;
+            entUi.placeType = $('#ent-filter-type').value;
+            entUi.placeStatus = $('#ent-filter-status').value;
+            // Clear Area only if moving to an unrelated Region.
+            if (key === 'region' && entUi.placeArea) {
+                if (aMap.get(entUi.placeArea)?.region_id !== entUi.placeRegion) {
+                    entUi.placeArea=''; $('#ent-filter-area').value='';
+                }
+            }
+            render();
+        };
+        $('#ent-local').onclick=()=>navigate('#entertainment/places');
+        $('#ent-all').onclick=()=>navigate('#entertainment/places/all');
+        $('#ent-place-add').onclick=()=>openPlace(null);
+        $('#ent-region-open').onclick=()=>navigate('#entertainment/regions');
+        const openPlace = async id => {
+            const row = id ? places.find(p=>p.id===id) : {};
+            const fields = [
+                {key:'name',label:'Name',required:true},
+                {key:'neighborhood_id',label:'Area',type:'select'},
+                {key:'category',label:'Category',type:'select',options:entChoice(allCategory)},
+                {key:'type',label:'Specific Type',list:[...new Set([...types,...['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Live Music Venue','Breakfast','Hotel','Museum','Park','Theater']])]},
+                {key:'address',label:'Address'},
+                {key:'description',label:'Description',type:'textarea'},
+                {key:'price_range',label:'Price Range'},
+                {key:'booking_url',label:'Booking URL'},
+                {key:'status',label:'Status',type:'select',options:entChoice(statuses)},
+                {key:'url',label:'Website URL'},
+                {key:'food_cost',label:'Food Cost',foodOnly:true},
+                {key:'drink_cost',label:'Drink Cost',foodOnly:true},
+                {key:'ice_type',label:'Type of Ice',type:'select',foodOnly:true,options:entChoice(['Small','Moderate Sized','Single Large'])},
+                {key:'happy_hour',label:'Happy Hour',foodOnly:true},
+                {key:'gluten_free',label:'Gluten Free',foodOnly:true},
+                {key:'rating',label:'Rating',foodOnly:true},
+                {key:'notes',label:'Notes',type:'textarea'}
+            ];
+            await entForm({table:'ent_places',id,row,fields,
+                choices:{neighborhood_id:entPickerOptions(areas)},heading:id?'Edit Place':'Add Place',
+                save:values=>api.savePlace(values,id),afterSave:()=>entPlaceList()});
+        };
+        render();
+        const draft = getRouteFormDraft();
+        if (draft?.meta?.tableName==='ent_places') openPlace(draft.meta.editId||null);
+    } catch(err) { entPage('Places','',entError(err)); }
+}
+
+async function entRegionList() {
+    entLoading('Regions');
+    try {
+        const api=entApi(), rows=await api.listRegions();
+        const statuses=entChoice(api.INTEREST_STATUS);
+        entPage('Regions','Reusable geographic regions and their personal interest statuses.',
+            `<div class="form-actions">${entButton('All Places','id="ent-back-places"')}
+            <button class="btn btn-primary btn-sm" id="ent-new">+ Add Region</button></div>
+            <div id="form-slot"></div><div class="entry-list">${rows.map(r=>`<div class="entry-card"><div>
+            <div class="entry-name">${esc(r.name)}</div><div class="entry-meta">${entStatus(r.status)} ${esc(r.type||'')}</div>
+            ${entDetailLine('Description',r.description)} ${entDetailLine('Notes',r.notes)}</div>
+            <div class="entry-actions">${entButton('Edit','data-edit="'+esc(r.id)+'"')}
+            ${entButton('Delete','data-delete="'+esc(r.id)+'"')}</div></div>`).join('')}</div>`);
+        $('#ent-back-places').onclick=()=>navigate('#entertainment/places/all');
+        const open = async id => {
+            const r=rows.find(x=>x.id===id)||{};
+            const fields=[{key:'name',label:'Region',required:true},
+                {key:'status',label:'Interest Status',type:'select',options:statuses},
+                {key:'description',label:'Description',type:'textarea'},
+                {key:'notes',label:'Notes',type:'textarea'}];
+            return entForm({table:'ent_regions',id,row:r,fields,heading:id?'Edit Region':'Add Region',
+                save:values=>api.saveRegion(id?values:{...values,type:'Vacation'},id),afterSave:()=>entRegionList()});
+        };
+        $('#ent-new').onclick=()=>open(null);
+        document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>open(b.dataset.edit));
+        document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{
+            const r=rows.find(x=>x.id===b.dataset.delete);
+            if(!await confirmDialog('Delete Region',`Delete ${r?.name||'Region'}? Existing Areas may become unassigned; vacation links to this Region will be removed.`)) return;
+            try {await api.deleteRegion(b.dataset.delete); toast('Deleted'); entRegionList();}catch(e){entError(e);}
+        });
+        const draft=getRouteFormDraft();
+        if(draft?.meta?.tableName==='ent_regions') open(draft.meta.editId||null);
+    }catch(e){entPage('Regions','',entError(e));}
+}
+
+async function entAreaList() {
+    entLoading('Areas');
+    try {
+        const api=entApi(), [rows,regions]=await Promise.all([api.listAreas(),api.listRegions()]);
+        const regionMap=new Map(regions.map(r=>[r.id,r.name]));
+        entPage('Areas','Areas can be saved and attached to vacations without requiring a Place.',
+            `<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="ent-new">+ Add Area</button></div>
+            <div id="form-slot"></div><div class="entry-list">${rows.map(r=>`<div class="entry-card"><div>
+            <div class="entry-name">${esc(r.name)}</div><div class="entry-meta">${entStatus(r.status)} ${esc(regionMap.get(r.region_id)||'Unassigned')}</div>
+            ${entDetailLine('Description',r.description)} ${entDetailLine('Notes',r.notes)}</div>
+            <div class="entry-actions">${entButton('Edit','data-edit="'+esc(r.id)+'"')}
+            ${entButton('Delete','data-delete="'+esc(r.id)+'"')}</div></div>`).join('')}</div>`);
+        const open=async id=>{
+            const row=rows.find(x=>x.id===id)||{};
+            return entForm({table:'ent_neighborhoods',id,row,heading:id?'Edit Area':'Add Area',
+                fields:[{key:'name',label:'Area',required:true},{key:'region_id',label:'Region',type:'select'},
+                    {key:'status',label:'Interest Status',type:'select',options:entChoice(api.INTEREST_STATUS)},
+                    {key:'description',label:'Description',type:'textarea'},
+                    {key:'notes',label:'Notes',type:'textarea'}],
+                choices:{region_id:entPickerOptions(regions)},
+                save:values=>api.saveArea(values,id),afterSave:()=>entAreaList()});
+        };
+        $('#ent-new').onclick=()=>open(null);
+        document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>open(b.dataset.edit));
+        document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{
+            const item=rows.find(x=>x.id===b.dataset.delete);
+            if(!await confirmDialog('Delete Area',`Delete ${item?.name||'Area'}? Places in it may become unassigned; vacation links to this Area will be removed.`)) return;
+            try{await api.deleteArea(b.dataset.delete);toast('Deleted');entAreaList();}catch(e){entError(e);}
+        });
+        const draft=getRouteFormDraft();
+        if(draft?.meta?.tableName==='ent_neighborhoods') open(draft.meta.editId||null);
+    }catch(e){entPage('Areas','',entError(e));}
+}
+
+async function entVacationList() {
+    entLoading('Vacations');
+    try {
+        const api=entApi();
+        const [trips,regions]=await Promise.all([api.listVacations(),api.listRegions()]);
+        const regionMap=new Map(regions.map(r=>[r.id,r.name]));
+        const markup=`<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="ent-new">+ New Vacation</button></div>
+            <div id="form-slot"></div><div class="entry-list">${trips.length ? trips.map(t=>`<div class="entry-card"><div>
+            <div class="entry-name"><a href="#entertainment/vacations/${esc(t.id)}">${esc(t.name)}</a></div>
+            <div class="entry-meta">${entStatus(t.status)} ${esc([t.start_date,t.end_date].filter(Boolean).join(' — '))}</div>
+            ${entDetailLine('Primary Region',regionMap.get(t.primary_region_id))}
+            ${entDetailLine('Description',t.description)}</div><div class="entry-actions">
+            ${entButton('Open','data-open="'+esc(t.id)+'"')}${entButton('Edit','data-edit="'+esc(t.id)+'"')}
+            ${entButton('Delete','data-delete="'+esc(t.id)+'"')}</div></div>`).join('') : '<p>No vacations yet. Create one to start planning.</p>'}</div>`;
+        entPage('Vacations','Planning, Upcoming, Completed, and Cancelled trips all use the same editable records.',markup);
+        const open=async id=>{
+            const row=trips.find(t=>t.id===id)||{};
+            const fields=[{key:'name',label:'Vacation Name',required:true},
+                {key:'primary_region_id',label:'Primary Region',type:'select'},
+                {key:'start_date',label:'Start Date',type:'date'},
+                {key:'end_date',label:'End Date',type:'date'},
+                {key:'status',label:'Status',type:'select',options:entChoice(api.VACATION_STATUS)},
+                {key:'description',label:'Description',type:'textarea'},
+                {key:'notes',label:'Trip Notes',type:'textarea'}];
+            return entForm({table:'ent_vacations',id,row:{status:'Planning',...row},fields,
+                choices:{primary_region_id:entPickerOptions(regions)},heading:id?'Edit Vacation':'New Vacation',
+                save:values=>api.saveVacation(values,id),afterSave:result=>navigate('#entertainment/vacations/'+result.id)});
+        };
+        $('#ent-new').onclick=()=>open(null);
+        document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>navigate('#entertainment/vacations/'+b.dataset.open));
+        document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>open(b.dataset.edit));
+        document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{
+            const row=trips.find(t=>t.id===b.dataset.delete);
+            if(!await confirmDialog('Delete Vacation',`Permanently delete ${row?.name||'vacation'} and its associated bookings and activities? Saved master Places and Events will remain.`)) return;
+            try{await api.deleteVacation(b.dataset.delete); toast('Vacation deleted'); entVacationList();}catch(e){entError(e);}
+        });
+        const draft=getRouteFormDraft();
+        if(draft?.meta?.tableName==='ent_vacations') open(draft.meta.editId||null);
+    }catch(e){entPage('Vacations','',entError(e));}
+}
+
+async function entEventList() {
+    entLoading('Events');
+    try {
+        const api=entApi(), [rows,places]=await Promise.all([api.listEvents(),api.listPlaces()]);
+        const pMap=new Map(places.map(p=>[p.id,p.name]));
+        entPage('Events','A scheduled performance or festival can be associated with a reusable Place and any vacation.',
+            `<div class="form-actions"><button class="btn btn-primary btn-sm" id="ent-new">+ Add Event</button></div>
+            <div id="form-slot"></div><div class="entry-list">${rows.map(e=>`<div class="entry-card"><div>
+            <div class="entry-name">${esc(e.name)}</div><div class="entry-meta">${esc(pMap.get(e.venue_place_id)||'')} ${esc(entTimeText(e.start_datetime,e.event_timezone))}</div>
+            ${entDetailLine('Description',e.description)} ${entDetailLine('Notes',e.notes)}</div>
+            <div class="entry-actions">${entButton('Edit','data-edit="'+esc(e.id)+'"')}
+            ${entButton('Delete','data-delete="'+esc(e.id)+'"')}</div></div>`).join('')}</div>`);
+        const open=async id=>{
+            const old=rows.find(r=>r.id===id)||{};
+            const row={...old,start_datetime:entTimeInput(old.start_datetime,old.event_timezone),
+                end_datetime:entTimeInput(old.end_datetime,old.event_timezone)};
+            const fields=[{key:'name',label:'Event Name',required:true},
+                {key:'venue_place_id',label:'Venue / Place',type:'select'},
+                {key:'event_timezone',label:'Venue Timezone (IANA)',list:entZones(),placeholder:'e.g. America/New_York'},
+                {key:'start_datetime',label:'Start (venue local time)',type:'datetime-local'},
+                {key:'end_datetime',label:'End (venue local time)',type:'datetime-local'},
+                {key:'description',label:'Description',type:'textarea'},
+                {key:'ticket_url',label:'Ticket URL'},
+                {key:'price',label:'Price'},{key:'notes',label:'Notes',type:'textarea'}];
+            return entForm({table:'ent_events',id,row,fields,heading:id?'Edit Event':'Add Event',
+                choices:{venue_place_id:entPickerOptions(places)},save:values=>api.saveEvent(values,id),
+                afterSave:()=>entEventList()});
+        };
+        $('#ent-new').onclick=()=>open(null);
+        document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>open(b.dataset.edit));
+        document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{
+            const e=rows.find(r=>r.id===b.dataset.delete);
+            if(!await confirmDialog('Delete Event',`Delete ${e?.name||'Event'} and its vacation activity associations?`))return;
+            try{await api.deleteEvent(b.dataset.delete);toast('Deleted');entEventList();}catch(e){entError(e);}
+        });
+        const draft=getRouteFormDraft();
+        if(draft?.meta?.tableName==='ent_events') open(draft.meta.editId||null);
+    }catch(e){entPage('Events','',entError(e));}
+}
+
+function entVacationLink(id,section) {
+    return '#entertainment/vacations/'+encodeURIComponent(id)+(section?'/'+section:'');
+}
+function entSectionLink(id,section,label,active) {
+    return `<a class="btn ${active===section?'btn-primary':'btn-secondary'} btn-sm" href="${entVacationLink(id,section)}">${esc(label)}</a>`;
+}
+async function entVacationDetail(id,section='overview') {
+    const sections=new Set(['overview','flights','lodging','transport','activities','notes']);
+    if(!sections.has(section)) section='overview';
+    entLoading('Vacation');
+    try {
+        const api=entApi();
+        const [bundle,regions]=await Promise.all([api.vacationBundle(id),api.listRegions()]);
+        const trip=bundle.vacation;
+        const region=regions.find(r=>r.id===trip.primary_region_id);
+        const tabs=[['overview','Overview'],['flights','Flights'],['lodging','Lodging'],
+            ['transport','Transport'],['activities','Activities / Visits'],['notes','Notes / History']];
+        const nav=`<div class="form-actions" style="display:flex;flex-wrap:wrap;gap:7px;">
+            ${tabs.map(([key,label])=>entSectionLink(id,key,label,section)).join('')}</div>`;
+        const summary=`<div class="entry-card"><div>
+             <div class="entry-name">${esc(trip.name)}</div>
+             <div class="entry-meta">${entStatus(trip.status)} ${esc([trip.start_date,trip.end_date].filter(Boolean).join(' — '))}</div>
+             ${entDetailLine('Primary Region',region?.name)}
+             ${entDetailLine('Description',trip.description)}</div></div>`;
+        entPage('Vacation: '+trip.name,'Completed vacations remain fully editable, just like planned trips.',
+            `<div class="form-actions">${entButton('All Vacations','id="ent-trips-back"')}</div>
+              ${summary}${nav}<div id="form-slot"></div><div id="ent-detail-content"></div>`);
+        $('#ent-trips-back').onclick=()=>navigate('#entertainment/vacations');
+        const content=$('#ent-detail-content');
+        const refresh=()=>entVacationDetail(id,section);
+        let restoreEdit=null;
+        const draft=getRouteFormDraft();
+
+        if(section==='overview') {
+            content.innerHTML=`<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="ent-edit-trip">Edit Vacation</button></div>
+                ${entDetailLine('Description',trip.description)} ${entDetailLine('Notes',trip.notes)}`;
+            const open=()=>entForm({table:'ent_vacations',id,row:trip,heading:'Edit Vacation',
+                fields:[{key:'name',label:'Vacation Name',required:true},
+                    {key:'primary_region_id',label:'Primary Region',type:'select'},
+                    {key:'start_date',label:'Start Date',type:'date'},{key:'end_date',label:'End Date',type:'date'},
+                    {key:'status',label:'Status',type:'select',options:entChoice(api.VACATION_STATUS)},
+                    {key:'description',label:'Description',type:'textarea'},
+                    {key:'notes',label:'Trip Notes',type:'textarea'}],
+                choices:{primary_region_id:entPickerOptions(regions)},
+                save:values=>api.saveVacation(values,id),afterSave:refresh});
+            $('#ent-edit-trip').onclick=open;
+            if(draft?.meta?.tableName==='ent_vacations'&&draft.meta.editId===id) restoreEdit=open;
+        }
+
+        if(section==='flights') {
+            const rows=bundle.flights;
+            content.innerHTML=`<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="ent-add">+ Add Flight Leg</button></div>
+                <div class="entry-list">${rows.length?rows.map(f=>`<div class="entry-card"><div>
+                    <div class="entry-name">${esc([f.airline,f.flight_number].filter(Boolean).join(' ')||f.direction||'Flight')}</div>
+                    <div class="entry-meta">${entStatus(f.booking_status)} ${esc(f.direction||'')}</div>
+                    ${entDetailLine('Route',[f.departure_airport,f.arrival_airport].filter(Boolean).join(' → '))}
+                    ${entDetailLine('Depart',entTimeText(f.departure_datetime,f.departure_timezone))}
+                    ${entDetailLine('Arrive',entTimeText(f.arrival_datetime,f.arrival_timezone))}
+                    ${entDetailLine('Booking',f.booking_notes)} ${entDetailLine('Notes',f.notes)}</div>
+                    <div class="entry-actions">${entButton('Edit','data-edit="'+esc(f.id)+'"')}${entButton('Delete','data-delete="'+esc(f.id)+'"')}</div></div>`).join(''):'<p>No flights recorded. Trips without flights are valid.</p>'}</div>`;
+            const open=childId=>{
+                const old=rows.find(f=>f.id===childId)||{};
+                const row={booking_status:'Not Planned',direction:'Other',...old,
+                    departure_datetime:entTimeInput(old.departure_datetime,old.departure_timezone),
+                    arrival_datetime:entTimeInput(old.arrival_datetime,old.arrival_timezone)};
+                const fields=[{key:'direction',label:'Direction',type:'select',options:entChoice(api.FLIGHT_DIRECTION)},
+                    {key:'airline',label:'Airline'}, {key:'flight_number',label:'Flight Number'},
+                    {key:'departure_airport',label:'Departure Airport'},
+                    {key:'arrival_airport',label:'Arrival Airport'},
+                    {key:'departure_timezone',label:'Departure Timezone (IANA)',list:entZones(),placeholder:'e.g. America/Chicago'},
+                    {key:'departure_datetime',label:'Departure (airport local time)',type:'datetime-local'},
+                    {key:'arrival_timezone',label:'Arrival Timezone (IANA)',list:entZones(),placeholder:'e.g. America/New_York'},
+                    {key:'arrival_datetime',label:'Arrival (airport local time)',type:'datetime-local'},
+                    {key:'booking_status',label:'Booking Status',type:'select',options:entChoice(api.BOOKING_STATUS)},
+                    {key:'booking_notes',label:'Booking Notes',type:'textarea'},
+                    {key:'notes',label:'Notes',type:'textarea'}];
+                return entForm({table:'ent_vacation_flights',seriesId:id,id:childId,row,fields,
+                    heading:childId?'Edit Flight':'Add Flight',
+                    save:values=>api.saveFlight(id,values,childId),afterSave:refresh});
+            };
+            $('#ent-add').onclick=()=>open(null);
+            content.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>open(b.dataset.edit));
+            content.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{
+                if(!await confirmDialog('Delete Flight','Permanently delete this flight segment?')) return;
+                try{await api.deleteFlight(b.dataset.delete);toast('Flight deleted');refresh();}catch(e){entError(e);}
+            });
+            if(draft?.meta?.tableName==='ent_vacation_flights'&&draft.meta.seriesId===id) restoreEdit=()=>open(draft.meta.editId||null);
+        }
+
+        if(section==='lodging') {
+            const rows=bundle.lodging;
+            content.innerHTML=`<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="ent-add">+ Add Lodging</button></div>
+              <p class="entry-meta">Select a saved Lodging Place, filtered by the vacation's Region, or type a guest-room/accommodation name. Multiple stays are allowed.</p>
+              <div class="entry-list">${rows.length?rows.map(s=>`<div class="entry-card"><div>
+                <div class="entry-name">${esc(s.place?.name||s.lodging_name||'Lodging')} ${s.is_primary?'<span class="status-badge">Primary</span>':''}</div>
+                <div class="entry-meta">${entStatus(s.booking_status)} ${esc([s.check_in_date,s.check_out_date].filter(Boolean).join(' — '))}</div>
+                ${entDetailLine('Address',s.place?.address)} ${entDetailLine('Booking',s.booking_notes)}
+                ${entDetailLine('Notes',s.notes)}</div><div class="entry-actions">
+                ${entButton('Edit','data-edit="'+esc(s.id)+'"')}${entButton('Delete','data-delete="'+esc(s.id)+'"')}</div></div>`).join(''):'<p>No lodging recorded. You can leave this empty for day trips.</p>'}</div>`;
+            const open=async childId=>{
+                const old=rows.find(s=>s.id===childId)||{};
+                const regionsChoices=entPickerOptions(regions);
+                const savedDraft=getRouteFormDraft();
+                const initialScope=savedDraft?.meta?.tableName==='ent_vacation_lodging' && savedDraft.meta.seriesId===id
+                    ? savedDraft.fields?.['ent-lodging-region']??trip.primary_region_id??'' : trip.primary_region_id||'';
+                // Region selector is a directory filter, never a restriction.
+                const scope=initialScope||'';
+                const opts=await api.lodgingChoices(id,{regionId:scope||null});
+                if(old.place_id && old.place && !opts.places.some(p=>p.id===old.place_id))
+                    opts.places.push(old.place);
+                const fields=[{key:'place_id',label:'Saved Lodging Place',type:'select'},
+                    {key:'lodging_name',label:'Guest Room / Other Lodging Name'},
+                    {key:'check_in_date',label:'Check-in',type:'date'},
+                    {key:'check_out_date',label:'Check-out',type:'date'},
+                    {key:'booking_status',label:'Booking Status',type:'select',options:entChoice(api.BOOKING_STATUS)},
+                    {key:'is_primary',label:'Primary Accommodation',type:'select',options:entChoice(['true','false'])},
+                    {key:'booking_notes',label:'Booking Notes',type:'textarea'},
+                    {key:'notes',label:'Notes',type:'textarea'}];
+                const row={booking_status:'Not Planned',is_primary:String(!!old.is_primary),...old,
+                    is_primary:String(!!old.is_primary)};
+                await entForm({table:'ent_vacation_lodging',seriesId:id,id:childId,row,fields,
+                    heading:childId?'Edit Lodging':'Add Lodging',
+                    choices:{place_id:entPickerOptions(opts.places)},
+                    save:async values=>{
+                        const wantsPrimary=values.is_primary==='true';
+                        // Avoid unique-primary conflict by switching primary AFTER save.
+                        values.is_primary=false;
+                        if(values.place_id) values.lodging_name=null;
+                        const saved=await api.saveLodging(id,values,childId);
+                        if(wantsPrimary) await api.setPrimaryLodging(id,saved.id);
+                        return saved;
+                    },afterSave:refresh,
+                    decorate:form=>{
+                        const select=document.createElement('div');
+                        select.className='form-group';
+                        select.innerHTML=`<label for="ent-lodging-region">Filter hotels by Region</label>
+                            <select id="ent-lodging-region">${entOptions(regionsChoices,scope,'All Regions')}</select>`;
+                        form.insertBefore(select,form.querySelector('.form-group'));
+                        const regionSelect=$('#ent-lodging-region');
+                        regionSelect.onchange=async()=>{
+                            try{
+                                const data=await api.lodgingChoices(id,{regionId:regionSelect.value||null});
+                                const hotel=$('#ent-f-place_id');
+                                const preserve=hotel.value;
+                                hotel.innerHTML=entOptions(entPickerOptions(data.places),preserve,'— Guest Room / None —');
+                            }catch(e){entError(e);}
+                        };
+                    }});
+            };
+            $('#ent-add').onclick=()=>open(null);
+            content.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>open(b.dataset.edit));
+            content.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{
+                if(!await confirmDialog('Delete Lodging','Remove this accommodation from the vacation? The master Place remains.')) return;
+                try{await api.deleteLodging(b.dataset.delete);toast('Lodging removed');refresh();}catch(e){entError(e);}
+            });
+            if(draft?.meta?.tableName==='ent_vacation_lodging'&&draft.meta.seriesId===id) restoreEdit=()=>open(draft.meta.editId||null);
+        }
+
+        if(section==='transport') {
+            const rows=bundle.transport;
+            content.innerHTML=`<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="ent-add">+ Add Transportation</button></div>
+              <div class="entry-list">${rows.length?rows.map(t=>`<div class="entry-card"><div>
+                <div class="entry-name">${esc([t.type,t.provider].filter(Boolean).join(' — ')||'Transportation')}</div>
+                <div class="entry-meta">${entStatus(t.booking_status)} ${esc(entTimeText(t.scheduled_datetime,t.scheduled_timezone))}</div>
+                ${entDetailLine('Route',[t.departure_location,t.arrival_location].filter(Boolean).join(' → '))}
+                ${entDetailLine('Booking',t.booking_notes)} ${entDetailLine('Notes',t.notes)}</div>
+                <div class="entry-actions">${entButton('Edit','data-edit="'+esc(t.id)+'"')}${entButton('Delete','data-delete="'+esc(t.id)+'"')}</div></div>`).join(''):'<p>No transportation recorded.</p>'}</div>`;
+            const open=childId=>{
+                const old=rows.find(t=>t.id===childId)||{};
+                const row={booking_status:'Not Planned',...old,
+                    scheduled_datetime:entTimeInput(old.scheduled_datetime,old.scheduled_timezone)};
+                const fields=[{key:'type',label:'Type',list:['Bus','Train','Taxi','Airport Transfer','Shuttle','Rental Car','Rideshare','Other']},
+                    {key:'provider',label:'Provider'},
+                    {key:'departure_location',label:'From'},
+                    {key:'arrival_location',label:'To'},
+                    {key:'scheduled_timezone',label:'Scheduled Timezone (IANA)',list:entZones()},
+                    {key:'scheduled_datetime',label:'Scheduled (local time)',type:'datetime-local'},
+                    {key:'booking_status',label:'Booking Status',type:'select',options:entChoice(api.BOOKING_STATUS)},
+                    {key:'booking_notes',label:'Booking Notes',type:'textarea'},
+                    {key:'notes',label:'Notes',type:'textarea'}];
+                return entForm({table:'ent_vacation_transport',seriesId:id,id:childId,row,fields,
+                    heading:childId?'Edit Transportation':'Add Transportation',
+                    save:values=>api.saveTransport(id,values,childId),afterSave:refresh});
+            };
+            $('#ent-add').onclick=()=>open(null);
+            content.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>open(b.dataset.edit));
+            content.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{
+                if(!await confirmDialog('Delete Transport','Permanently remove this transport arrangement?')) return;
+                try{await api.deleteTransport(b.dataset.delete);toast('Removed');refresh();}catch(e){entError(e);}
+            });
+            if(draft?.meta?.tableName==='ent_vacation_transport'&&draft.meta.seriesId===id) restoreEdit=()=>open(draft.meta.editId||null);
+        }
+
+        if(section==='activities') {
+            const rows=bundle.activities;
+            const kindLabel={region:'Region',area:'Area',place:'Place',event:'Event'};
+            const ordered=[...rows].sort((a,b)=>{
+                if(!a.planned_date&&!b.planned_date)return 0;
+                if(!a.planned_date)return 1;
+                if(!b.planned_date)return -1;
+                return a.planned_date.localeCompare(b.planned_date);
+            });
+            const contentRows=ordered.map(x=>{
+                const type=x.target_type||'place';
+                return `<div class="entry-card"><div style="min-width:0;flex:1;">
+                    <div class="entry-name">${esc(x.target?.name||'(Deleted destination)')}</div>
+                    <div class="entry-meta">${esc(kindLabel[type]||type)} · ${x.planned_date?esc(x.planned_date):'Undated'}
+                    ${x.visited?'<span class="status-badge">Visited</span>':''}</div>
+                    ${entDetailLine('Description',x.target?.description)}
+                    ${entDetailLine('Visit Notes',x.notes)}
+                    <div class="form-actions" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:7px;align-items:center;">
+                        <label><input type="checkbox" id="ent-visit-${esc(x.id)}" ${x.visited?'checked':''}> Visited</label>
+                        <input type="date" id="ent-visited-date-${esc(x.id)}" value="${esc(x.visited_date||'')}" aria-label="Actual visited date">
+                        ${entButton('Save Visit','data-visit="'+esc(x.id)+'"')}
+                    </div></div><div class="entry-actions">${entButton('Edit','data-edit="'+esc(x.id)+'"')}
+                    ${entButton('Remove','data-delete="'+esc(x.id)+'"')}</div></div>`;
+            }).join('');
+            content.innerHTML=`<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="ent-add">+ Add Destination / Activity</button></div>
+                <p class="entry-meta">Planned dates are optional. Each destination can be linked once per vacation. Visited and planned dates are independent.</p>
+                <div class="entry-list">${contentRows||'<p>No destinations linked to this vacation yet.</p>'}</div>`;
+            const open=async childId=>{
+                const old=rows.find(x=>x.id===childId)||{};
+                const kind=old.target_type||'place';
+                const currentDraft=getRouteFormDraft();
+                const draftFields=currentDraft?.meta?.tableName==='ent_vacation_items' && currentDraft.meta.seriesId===id
+                    ? currentDraft.fields||{} : {};
+                const chosenRegion=draftFields['ent-activity-region']??(childId ? '' : (trip.primary_region_id||''));
+                const all=await api.activityChoices(id,{regionId:null});
+                const areas=new Map(all.areas.map(a=>[a.id,a]));
+                const places=new Map(all.places.map(p=>[p.id,p]));
+                const typeMap={region:'region_id',area:'area_id',place:'place_id',event:'event_id'};
+                const fields=[{key:'planned_date',label:'Optional Planned Date',type:'date'},
+                    {key:'visited',label:'Visited',type:'select',options:entChoice(['true','false'])},
+                    {key:'visited_date',label:'Actual Visit Date (optional)',type:'date'},
+                    {key:'notes',label:'Trip-specific Notes',type:'textarea'}];
+                const row={planned_date:old.planned_date||'',visited:String(!!old.visited),visited_date:old.visited_date||'',notes:old.notes||''};
+                await entForm({table:'ent_vacation_items',seriesId:id,id:childId,row,fields,
+                    heading:childId?'Edit Destination / Activity':'Add Destination / Activity',
+                    save:async values=>{
+                        const k=$('#ent-activity-kind').value;
+                        const target=$('#ent-activity-target').value;
+                        if(!target)throw new Error('Select a destination or event.');
+                        values[typeMap[k]]=target;
+                        values.visited=values.visited==='true';
+                        if(!values.visited)values.visited_date=null;
+                        return api.saveItem(id,values,childId);
+                    },afterSave:refresh,
+                    decorate:form=>{
+                        const currentKind=draftFields['ent-activity-kind']||kind;
+                        const box=document.createElement('div');
+                        box.innerHTML=`<div class="form-group"><label for="ent-activity-region">Region filter (optional)</label>
+                            <select id="ent-activity-region">${entOptions(entPickerOptions(all.regions),chosenRegion,'All Regions')}</select></div>
+                            <div class="form-group"><label for="ent-activity-kind">Destination Type</label>
+                            <select id="ent-activity-kind">${entOptions(entChoice(['region','area','place','event']).map(x=>({...x,label:kindLabel[x.value]})),currentKind,'Choose Type')}</select></div>
+                            <div class="form-group"><label for="ent-activity-target">Select Destination</label>
+                            <select id="ent-activity-target"></select></div>`;
+                        form.insertBefore(box,form.querySelector('.form-group'));
+                        const filter=()=>{
+                            const reg=$('#ent-activity-region').value;
+                            const k=$('#ent-activity-kind').value;
+                            let options=[];
+                            if(k==='region') options=all.regions;
+                            if(k==='area') options=all.areas.filter(a=>!reg||a.region_id===reg);
+                            if(k==='place') options=all.places.filter(p=>!reg||areas.get(p.neighborhood_id)?.region_id===reg);
+                            if(k==='event') options=all.events.filter(e=>{
+                                if(!reg)return true;
+                                const p=places.get(e.venue_place_id);
+                                return p ? areas.get(p.neighborhood_id)?.region_id===reg : false;
+                            });
+                            const target=$('#ent-activity-target');
+                            const selected=target.value || draftFields['ent-activity-target'] || old[typeMap[k]] || '';
+                            target.innerHTML=entOptions(entPickerOptions(options),selected,'— Choose destination —');
+                        };
+                        $('#ent-activity-region').onchange=filter;
+                        $('#ent-activity-kind').onchange=filter;
+                        filter();
+                    }});
+            };
+            $('#ent-add').onclick=()=>open(null);
+            content.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>open(b.dataset.edit));
+            content.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{
+                if(!await confirmDialog('Remove from Vacation','Remove this association and its trip-specific visit notes? The reusable destination or Event is not deleted.'))return;
+                try{await api.removeItem(id,b.dataset.delete);toast('Removed from vacation');refresh();}catch(e){entError(e);}
+            });
+            content.querySelectorAll('[data-visit]').forEach(b=>b.onclick=async()=>{
+                const itemId=b.dataset.visit;
+                const visited=$('#ent-visit-'+itemId).checked;
+                const date=$('#ent-visited-date-'+itemId).value||null;
+                try{await api.setVisited(id,itemId,visited,date);toast('Visit updated');refresh();}catch(e){entError(e);}
+            });
+            if(draft?.meta?.tableName==='ent_vacation_items'&&draft.meta.seriesId===id) restoreEdit=()=>open(draft.meta.editId||null);
+        }
+
+        if(section==='notes') {
+            const visited=bundle.activities.filter(x=>x.visited);
+            content.innerHTML=`<div class="form-actions"><button type="button" class="btn btn-primary btn-sm" id="ent-edit-notes">Edit Notes</button></div>
+               <div class="form-panel"><h3>Trip Notes</h3><p style="white-space:pre-wrap;">${esc(trip.notes||'No notes recorded.')}</p></div>
+               <h3>Visited Destinations (${visited.length})</h3><div class="entry-list">${visited.map(x=>`<div class="entry-card"><div>
+               <div class="entry-name">${esc(x.target?.name||'Unknown destination')}</div>
+               <div class="entry-meta">${esc(entDateText(x.visited_date))}</div>
+               ${entDetailLine('Notes',x.notes)}</div></div>`).join('')||'<p>No visited destinations marked yet.</p>'}</div>`;
+            const open=()=>entForm({table:'ent_vacations',id,row:trip,
+                heading:'Edit Trip Notes',fields:[{key:'notes',label:'Trip Notes',type:'textarea'}],
+                save:values=>api.saveVacation(values,id),afterSave:refresh});
+            $('#ent-edit-notes').onclick=open;
+            if(draft?.meta?.tableName==='ent_vacations'&&draft.meta.editId===id) restoreEdit=open;
+        }
+        if(restoreEdit)await restoreEdit();
+    }catch(e){entPage('Vacation','',entError(e));}
+}
+
+// END OF VACATION & PLACES EXPANSION ADDITION.
+// Keep the original `init();` call immediately AFTER this block.
+
+
 // ============================================================
 // INIT
 // ============================================================
