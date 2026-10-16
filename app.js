@@ -2436,7 +2436,7 @@ async function entForm({ table, seriesId = null, id = null, row = {}, fields, sa
     if (table === 'ent_places') {
         const cat = $('#ent-f-category');
         const type = $('#ent-f-type');
-        const foodTypes = new Set(['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Dance Club','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Breakfast']);
+        const foodTypes = new Set(['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Breakfast']);
         const toggle = () => slot.querySelectorAll('[data-ent-food]').forEach(el => {
             el.style.display = (cat?.value === 'Food & Drink' || (!cat?.value && foodTypes.has(type?.value))) ? '' : 'none';
         });
@@ -2613,7 +2613,7 @@ async function entPlaceList() {
                 {key:'name',label:'Name',required:true},
                 {key:'neighborhood_id',label:'Area',type:'select'},
                 {key:'category',label:'Category',type:'select',options:entChoice(allCategory)},
-                {key:'type',label:'Specific Type',list:[...new Set([...types,...['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Live Music Venue','Breakfast','Hotel','Museum','Park','Theater']])]},
+                {key:'type',label:'Specific Type',list:[...new Set([...types,...['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Dance Club','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Live Music Venue','Breakfast','Hotel','Museum','Park','Theater']])]},
                 {key:'address',label:'Address'},
                 {key:'description',label:'Description',type:'textarea'},
                 {key:'price_range',label:'Price Range'},
