@@ -307,7 +307,7 @@ const ENT_PLACE_FIELDS = [
     { key:'name', label:'Name', type:'text', required:true },
     { key:'neighborhood_id', label:'Area', type:'fk', fkTable:'ent_neighborhoods', fkLabel:'name' },
     { key:'address', label:'Address', type:'text' },
-    { key:'type', label:'Type', type:'select', options:['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Live Music Venue','Breakfast'] },
+    { key:'type', label:'Type', type:'select', options:['Restaurant','Bar','Bar/Cafe','Cocktail Bar','Dance Club','Brewery/Taproom','Wine Bar','Cafe','Bakery','Ice Cream','Food Hall','Live Music Venue','Breakfast'] },
     { key:'food_cost', label:'Food Cost', type:'text' },
     { key:'drink_cost', label:'Drink Cost', type:'text' },
     { key:'ice_type', label:'Type of Ice', type:'select', options:['Small','Moderate Sized','Single Large'] },
